@@ -1,7 +1,6 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 
-const EXPECTED_PROJECT_REF = "mftfsyuwcnqkcxrchkbq";
 const databaseUrl = process.env.DATABASE_URL;
 
 const prisma = new PrismaClient({
@@ -13,36 +12,14 @@ function has(name: string) {
   return Boolean(value && value.trim());
 }
 
-function projectRefFromUrl(raw: string) {
-  try {
-    const url = new URL(raw);
-    if (url.username.startsWith("postgres.")) return url.username.slice("postgres.".length);
-    if (url.hostname.startsWith("db.")) return url.hostname.split(".")[1];
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function maskedUrl(name: string) {
   const raw = process.env[name];
   if (!raw) return "missing";
   try {
     const url = new URL(raw);
-    const projectRef = projectRefFromUrl(raw);
-    return `${url.protocol}//${url.username ? "***@" : ""}${url.hostname}:${url.port || "default"}${url.pathname}${projectRef ? ` (${projectRef})` : ""}`;
+    return `${url.protocol}//${url.username ? "***@" : ""}${url.hostname}:${url.port || "default"}${url.pathname}`;
   } catch {
     return "present but not a valid URL";
-  }
-}
-
-function assertExpectedProject(name: string) {
-  const raw = process.env[name];
-  if (!raw) return;
-
-  const projectRef = projectRefFromUrl(raw);
-  if (projectRef !== EXPECTED_PROJECT_REF) {
-    throw new Error(`${name} must point to Supabase project ${EXPECTED_PROJECT_REF}. Current project: ${projectRef ?? "unknown"}.`);
   }
 }
 
@@ -59,7 +36,6 @@ async function tableExists(name: string) {
 
 async function main() {
   console.log("Nexa Markets DB doctor");
-  console.log(`Expected Supabase project: ${EXPECTED_PROJECT_REF}`);
   console.log(`DATABASE_URL: ${maskedUrl("DATABASE_URL")}`);
   console.log(`DIRECT_URL: ${maskedUrl("DIRECT_URL")}`);
   console.log(`ADMIN_EMAIL: ${has("ADMIN_EMAIL") ? "present" : "missing"}`);
@@ -67,11 +43,8 @@ async function main() {
   console.log(`DEV_MOCK_AUTH: ${process.env.DEV_MOCK_AUTH ?? "unset"}`);
 
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is missing. Prisma cannot query Supabase without the Nexa Markets Postgres connection string.");
+    throw new Error("DATABASE_URL is missing. Prisma cannot query PostgreSQL without the Nexa Markets database connection string.");
   }
-
-  assertExpectedProject("DATABASE_URL");
-  assertExpectedProject("DIRECT_URL");
 
   await prisma.$connect();
   console.log("Connection: ok");
