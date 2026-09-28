@@ -6,13 +6,13 @@ Nexa Markets intentionally contains only Admins, Retention Agents, and Leads. Do
 
 ## Single Database
 
-Nexa Markets uses one database only: Supabase project `kxxfovjyxcqmwymrxbyc`.
+Nexa Markets uses one database only: Supabase project `mftfsyuwcnqkcxrchkbq`.
 
 Use only these Postgres connection variables:
 
 ```env
-DATABASE_URL="postgresql://postgres.kxxfovjyxcqmwymrxbyc:DB_PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=true&connection_limit=1"
-DIRECT_URL="postgresql://postgres.kxxfovjyxcqmwymrxbyc:DB_PASSWORD@POOLER_HOST:5432/postgres"
+DATABASE_URL="postgresql://postgres.mftfsyuwcnqkcxrchkbq:DB_PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+DIRECT_URL="postgresql://postgres.mftfsyuwcnqkcxrchkbq:DB_PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require"
 ```
 
 `DATABASE_URL` is the runtime app connection. `DIRECT_URL` is the migration connection. Both point to the same Supabase project and the same Postgres database.
@@ -24,8 +24,8 @@ Do not use Supabase API keys for Prisma/Postgres. Do not add another database UR
 For local development, copy `.env.example` to `.env` and set the database and server-only values. In Vercel, set the same values in Project Settings -> Environment Variables. The runtime and migration URLs must point to the same PostgreSQL database:
 
 ```env
-DATABASE_URL="postgresql://postgres.kxxfovjyxcqmwymrxbyc:DB_PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=true&connection_limit=1"
-DIRECT_URL="postgresql://postgres.kxxfovjyxcqmwymrxbyc:DB_PASSWORD@POOLER_HOST:5432/postgres"
+DATABASE_URL="postgresql://postgres.mftfsyuwcnqkcxrchkbq:DB_PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+DIRECT_URL="postgresql://postgres.mftfsyuwcnqkcxrchkbq:DB_PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require"
 ADMIN_EMAIL="admin@example.com"
 ADMIN_INITIAL_PASSWORD="replace-with-a-long-random-password"
 ```
@@ -45,7 +45,7 @@ npm run dev
 
 Seed data creates one Admin from environment variables, several dummy Retention Agents, fake leads, assignments, notes, and deposits. The initial Admin password must be at least 12 characters.
 
-Run `npm run db:bootstrap` once against Supabase project `kxxfovjyxcqmwymrxbyc` after the required environment variables are present. It applies migrations and creates/updates only the first admin account. It does not create sample agents, leads, notes, or deposits.
+Run `npm run db:bootstrap` once against Supabase project `mftfsyuwcnqkcxrchkbq` after the required environment variables are present. It applies migrations and creates/updates only the first admin account. It does not create sample agents, leads, notes, or deposits.
 
 Run `npm run db:setup` only when you intentionally want local/demo seed data. It applies migrations and seeds dummy agents, leads, notes, and deposits. It is intentionally not run automatically during production deployment.
 

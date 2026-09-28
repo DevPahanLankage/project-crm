@@ -15,7 +15,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:deploy": "prisma migrate deploy",
+    "db:deploy": "tsx scripts/db-deploy.ts",
     "db:status": "prisma migrate status",
     "db:doctor": "tsx scripts/db-doctor.ts",
     "db:bootstrap": "tsx scripts/db-bootstrap.ts",

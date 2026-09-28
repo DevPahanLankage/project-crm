@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 
-const EXPECTED_PROJECT_REF = "kxxfovjyxcqmwymrxbyc";
+const EXPECTED_PROJECT_REF = "mftfsyuwcnqkcxrchkbq";
 const databaseUrl = process.env.DATABASE_URL;
 
 const prisma = new PrismaClient({
