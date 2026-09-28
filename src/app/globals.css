@@ -702,27 +702,25 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 .lead-profile .profile-form { grid-template-columns: repeat(2, minmax(200px, 1fr)); }
 .info-grid, .payment-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 7px 16px; }
 .personal-overview {
-  border-color: #202126;
-  background: linear-gradient(180deg, #0d0d0d, #080808);
-  color: #f8fafc;
-  box-shadow: 0 14px 32px rgb(0 0 0 / 18%), inset 0 1px 0 rgb(255 255 255 / 4%);
+  border-color: var(--crm-border);
+  background: var(--crm-surface);
+  color: var(--crm-text);
 }
-.personal-overview h2 { color: #ffffff; }
+.personal-overview h2 { color: var(--crm-heading); }
 .personal-overview .info-grid { grid-template-columns: 1fr; gap: 0; }
 .personal-overview .info-row {
   grid-template-columns: minmax(116px, .58fr) minmax(0, 1fr);
   min-height: 34px;
   gap: 14px;
-  border-bottom-color: rgb(255 255 255 / 8%);
+  border-bottom-color: var(--crm-info-border);
 }
 .personal-overview .info-row:last-child { border-bottom: 0; }
-.personal-overview .info-row span { color: #8b949e; font-size: 12px; font-weight: 700; }
-.personal-overview .info-row strong { color: #f8fafc; font-weight: 750; min-width: 0; }
-.personal-overview .muted { color: #717b87; }
-.personal-overview .country-code { color: #f8fafc; }
-.personal-overview .country-flag { box-shadow: 0 0 0 1px rgb(255 255 255 / 18%); }
+.personal-overview .info-row span { color: var(--crm-heading); font-size: 12px; font-weight: 750; }
+.personal-overview .info-row strong { color: var(--crm-text); font-weight: 750; min-width: 0; }
+.personal-overview .muted { color: var(--crm-text); }
+.personal-overview .country-code { color: var(--crm-text); }
 .personal-overview .copyable-value:hover,
-.personal-overview .copyable-value:focus-visible { color: #93c5fd; }
+.personal-overview .copyable-value:focus-visible { color: var(--crm-table-blue); }
 .info-row { display: grid; grid-template-columns: 132px 1fr; gap: 8px; min-height: 29px; align-items: center; border-bottom: 1px solid var(--crm-info-border); }
 .info-row span { color: var(--crm-muted); }
 .info-row strong { font-weight: 650; overflow-wrap: anywhere; }
