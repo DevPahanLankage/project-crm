@@ -35,7 +35,7 @@ export function AdminSettings({ users, currentUserId }: { users: UserListItem[];
           {editing && <input type="hidden" name="userId" value={editing.id} />}
           <label className="filter-field"><span>FULL NAME</span><input name="fullName" defaultValue={editing?.fullName ?? ""} required /></label>
           <label className="filter-field"><span>EMAIL</span><input name="email" type="email" defaultValue={editing?.email ?? ""} readOnly={Boolean(editing)} required /></label>
-          <label className="filter-field"><span>PASSWORD</span><input name="password" type="password" placeholder={editing ? "Leave blank to keep current password" : "Minimum 12 characters"} required={!editing} /></label>
+          <label className="filter-field"><span>PASSWORD</span><input name="password" type="password" placeholder={editing ? "Leave blank to keep current password" : "Enter password"} required={!editing} /></label>
           <label className="filter-field"><span>ROLE</span><select name="role" defaultValue={editing?.role ?? "RETENTION_AGENT"}><option value="ADMIN">Admin</option><option value="RETENTION_AGENT">Retention Agent</option></select></label>
           <div className="form-row-actions"><ActionMessage state={userState} />{editing && <button type="button" onClick={() => setEditing(null)}>Cancel edit</button>}<SubmitButton>{editing ? "Save changes" : "Create user"}</SubmitButton></div>
         </form>

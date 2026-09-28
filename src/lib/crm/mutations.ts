@@ -88,8 +88,7 @@ export async function createOrUpdateUser(user: AuthenticatedLeadUser, formData: 
   const { userId, fullName, email, role } = parsed.data;
   const password = parsed.data.password?.trim() ?? "";
 
-  if (!userId && password.length < 12) return fail("Password must be at least 12 characters.", { password: ["Password must be at least 12 characters."] });
-  if (password && password.length < 12) return fail("Password must be at least 12 characters.", { password: ["Password must be at least 12 characters."] });
+  if (!userId && !password) return fail("Password is required.", { password: ["Password is required."] });
 
   try {
     if (userId) {
