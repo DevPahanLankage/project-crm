@@ -21,7 +21,7 @@ Do not use Supabase API keys for Prisma/Postgres. Do not add another database UR
 
 ## Environment
 
-For local development, copy `.env.example` to `.env` and set the database and server-only values. In Vercel, set the same values in Project Settings -> Environment Variables. The runtime and migration URLs must point to the same PostgreSQL database:
+For local development or VPS deployment, copy `.env.example` to `.env` and set the database and server-only values. The runtime and migration URLs must point to the same PostgreSQL database:
 
 ```env
 DATABASE_URL="postgresql://postgres.mftfsyuwcnqkcxrchkbq:DB_PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
@@ -78,32 +78,30 @@ npm run build
 npm run db:doctor
 ```
 
-## Vercel Deployment
+## Production VPS Deployment
 
-This project is deployed as a standard Vercel Next.js app.
+This project runs as a Dockerized Next.js standalone server on the VPS. Docker Compose binds the container only to `127.0.0.1:3000`; Caddy handles public HTTPS and reverse proxies to that loopback address. The database is external Supabase/PostgreSQL.
 
-Recommended Vercel project settings:
-
-- Framework Preset: `Next.js`
-- Install Command: `npm ci`
-- Build Command: `npm run build`
-- Output Directory: leave unset
-- Node.js Version: `22.x`
-
-The build command runs `prisma generate` before `next build`. Database migrations are intentionally not part of the Vercel build command.
-
-Before the first production use of an empty database, run this from a trusted local machine or CI environment with `.env` configured:
+Create `.env` on the VPS before starting the container. Never commit production secrets.
 
 ```bash
-npm ci
-npm run db:bootstrap
+git pull
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose logs -f app
 ```
 
-For later schema changes, run:
+For a blank production database, run once:
 
 ```bash
-npm ci
-npm run db:deploy
+docker compose exec app npm run db:bootstrap
+```
+
+For later deployments with an existing admin/data, run migrations explicitly:
+
+```bash
+docker compose exec app npm run db:deploy
 ```
 
 `db:bootstrap` applies migrations and creates or updates the configured initial Admin. It resets that Admin's password to `ADMIN_INITIAL_PASSWORD`, so it is not a routine deployment command. `db:seed` and `db:setup` create demo agents and fake CRM data and must not be run against a real production database.
