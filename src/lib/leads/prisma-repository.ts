@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { getCountry, getCountryCodesMatching } from "@/lib/countries";
 import { db } from "@/lib/db";
 import type { AuthenticatedLeadUser, CountryFilterOption, DepositItem, LeadDetail, LeadListItem, LeadPageResult, LeadQuery, NoteItem, UserListItem } from "@/lib/leads/types";
+import { startPerf, timed } from "@/lib/perf";
 
 function leadAccessWhere(user: AuthenticatedLeadUser, leadId?: string): Prisma.LeadWhereInput {
   return {
@@ -133,26 +134,29 @@ function mapCountryOptions(rows: CountryCountRow[]): CountryFilterOption[] {
 }
 
 export async function listPrismaLeads(user: AuthenticatedLeadUser, query: LeadQuery): Promise<LeadPageResult> {
+  const endRepository = startPerf("leads repository total");
   const where = listWhereSql(user, query);
   const orderBy = listOrderSql(query);
   const requestedPage = query.pageSize === "all" ? 1 : query.page;
   const limit = query.pageSize === "all" ? Prisma.empty : Prisma.sql`LIMIT ${query.pageSize} OFFSET ${(requestedPage - 1) * query.pageSize}`;
 
-  const agentsPromise = user.role === "ADMIN" ? db.user.findMany({
-    where: { role: "RETENTION_AGENT", active: true },
-    orderBy: { fullName: "asc" },
-    select: { id: true, fullName: true },
-  }) : Promise.resolve([]);
+  const agentsPromise = user.role === "ADMIN" ? timed("leads agents query", () =>
+    db.user.findMany({
+      where: { role: "RETENTION_AGENT", active: true },
+      orderBy: { fullName: "asc" },
+      select: { id: true, fullName: true },
+    }),
+  ) : Promise.resolve([]);
 
-  const countryOptionsPromise = db.$queryRaw<CountryCountRow[]>`
+  const countryOptionsPromise = timed("lead country counts", () => db.$queryRaw<CountryCountRow[]>`
     SELECT l."countryCode", COUNT(*)::int AS count
     FROM "Lead" l
     ${listWhereSql(user, query, { includeCountry: false, requireCountry: true })}
     GROUP BY l."countryCode"
     ORDER BY l."countryCode" ASC
-  `.then(mapCountryOptions);
+  `).then(mapCountryOptions);
 
-  const rowsPromise = db.$queryRaw<LeadListRow[]>`
+  const rowsPromise = timed("leads query", () => db.$queryRaw<LeadListRow[]>`
     SELECT
       l.id,
       l."firstName",
@@ -199,14 +203,14 @@ export async function listPrismaLeads(user: AuthenticatedLeadUser, query: LeadQu
     ${where}
     ORDER BY ${orderBy}
     ${limit}
-  `;
+  `);
 
   const [agents, countryOptions, initialRows] = await Promise.all([agentsPromise, countryOptionsPromise, rowsPromise]);
   const initialTotal = Number(initialRows[0]?.totalCount ?? 0);
-  const total = initialRows.length || requestedPage === 1 ? initialTotal : Number((await db.$queryRaw<Array<{ total: number | bigint }>>`SELECT COUNT(*)::int AS total FROM "Lead" l ${where}`)[0]?.total ?? 0);
+  const total = initialRows.length || requestedPage === 1 ? initialTotal : Number((await timed("leads fallback count", () => db.$queryRaw<Array<{ total: number | bigint }>>`SELECT COUNT(*)::int AS total FROM "Lead" l ${where}`))[0]?.total ?? 0);
   const totalPages = query.pageSize === "all" ? 1 : Math.max(1, Math.ceil(total / query.pageSize));
   const page = query.pageSize === "all" ? 1 : Math.min(query.page, totalPages);
-  const rows = page === requestedPage ? initialRows : await db.$queryRaw<LeadListRow[]>`
+  const rows = page === requestedPage ? initialRows : await timed("leads corrected page query", () => db.$queryRaw<LeadListRow[]>`
     SELECT
       l.id,
       l."firstName",
@@ -235,9 +239,9 @@ export async function listPrismaLeads(user: AuthenticatedLeadUser, query: LeadQu
     ${where}
     ORDER BY ${orderBy}
     LIMIT ${query.pageSize === "all" ? total : query.pageSize} OFFSET ${(page - 1) * (query.pageSize === "all" ? total : query.pageSize)}
-  `;
+  `);
 
-  return {
+  const result = {
     total,
     page,
     agents,
@@ -257,6 +261,8 @@ export async function listPrismaLeads(user: AuthenticatedLeadUser, query: LeadQu
       lastNote: lead.lastNoteAt ? { at: lead.lastNoteAt, author: lead.lastNoteAuthor, preview: lead.lastNoteBody ? preview(lead.lastNoteBody) : null } : null,
     })),
   };
+  endRepository();
+  return result;
 }
 export async function getAuthorizedLeadDetail(user: AuthenticatedLeadUser, leadId: string): Promise<LeadDetail | null> {
   const lead = await db.lead.findFirst({
@@ -335,18 +341,20 @@ export async function listActiveRetentionAgents() {
 }
 
 export async function listUsersForAdmin(): Promise<UserListItem[]> {
-  const users = await db.user.findMany({
-    orderBy: [{ active: "desc" }, { fullName: "asc" }],
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      role: true,
-      active: true,
-      createdAt: true,
-      _count: { select: { assignedLeads: true } },
-    },
-  });
+  const users = await timed("settings users query", () =>
+    db.user.findMany({
+      orderBy: [{ active: "desc" }, { fullName: "asc" }],
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        active: true,
+        createdAt: true,
+        _count: { select: { assignedLeads: true } },
+      },
+    }),
+  );
   return users.map((user) => ({
     id: user.id,
     fullName: user.fullName,

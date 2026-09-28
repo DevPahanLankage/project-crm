@@ -6,6 +6,7 @@ import { requireAuthenticatedUser } from "@/lib/auth";
 import { parseLeadQuery } from "@/lib/leads/query";
 import { listAuthorizedLeads } from "@/lib/leads/service";
 import { leadListHref, type LeadSearchParams } from "@/lib/leads/url";
+import { startPerf } from "@/lib/perf";
 
 function preservedInputs(params: LeadSearchParams, excluded: string[]) {
   return Object.entries(params).flatMap(([key, raw]) => {
@@ -16,10 +17,12 @@ function preservedInputs(params: LeadSearchParams, excluded: string[]) {
 }
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<LeadSearchParams> }) {
+  const endPage = startPerf("leads page total");
   const user = await requireAuthenticatedUser();
   const params = await searchParams;
   const query = parseLeadQuery(params);
   const result = await listAuthorizedLeads(user, query);
+  endPage();
   const isAdmin = user.role === "ADMIN";
   const totalPages = query.pageSize === "all" ? 1 : Math.max(1, Math.ceil(result.total / query.pageSize));
   const start = result.total === 0 ? 0 : query.pageSize === "all" ? 1 : (result.page - 1) * query.pageSize + 1;

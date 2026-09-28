@@ -5,6 +5,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Role, User } from "@prisma/client";
+import { startPerf, timed } from "@/lib/perf";
 
 const SESSION_COOKIE = "crm_session";
 const MOCK_SESSION_COOKIE = "crm_mock_session";
@@ -97,30 +98,47 @@ export async function destroySession() {
 }
 
 export const getCurrentUser = cache(async function getCurrentUser(): Promise<CurrentUser | null> {
-  if (isDevMockAuthEnabled()) return getMockUser();
+  const endAuth = startPerf("auth total");
+
+  if (isDevMockAuthEnabled()) {
+    try {
+      return await getMockUser();
+    } finally {
+      endAuth();
+    }
+  }
 
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  if (!token) {
+    endAuth();
+    return null;
+  }
 
   const { db } = await import("@/lib/db");
-  const session = await db.session.findUnique({
-    where: { tokenHash: hashToken(token) },
-    select: {
-      expiresAt: true,
-      user: {
-        select: {
-          id: true,
-          email: true,
-          fullName: true,
-          role: true,
-          active: true,
+  const session = await timed("session lookup", () =>
+    db.session.findUnique({
+      where: { tokenHash: hashToken(token) },
+      select: {
+        expiresAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            role: true,
+            active: true,
+          },
         },
       },
-    },
-  });
+    }),
+  );
 
-  if (!session || session.expiresAt <= new Date() || !session.user.active) return null;
+  if (!session || session.expiresAt <= new Date() || !session.user.active) {
+    endAuth();
+    return null;
+  }
   const { id, email, fullName, role } = session.user;
+  endAuth();
   return { id, email, fullName, role };
 });
 
