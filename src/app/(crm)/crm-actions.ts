@@ -16,9 +16,12 @@ import {
   distributeLeads,
   importLeadsFromExcel,
   toggleNotePin,
-  updateLeadAssignment,
+  updateActiveTeam,
   updateLeadProfile,
-  updateLeadStatus,
+  updateRetentionAssignment,
+  updateRetentionStatus,
+  updateSalesAssignment,
+  updateSalesStatus,
 } from "@/lib/crm/mutations";
 import type { ActionState } from "@/lib/leads/types";
 
@@ -60,16 +63,37 @@ export async function importLeadsAction(_state: ActionState, formData: FormData)
   return result;
 }
 
-export async function updateLeadStatusAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+export async function updateSalesStatusAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireAuthenticatedUser();
-  const result = await updateLeadStatus(user, formData);
+  const result = await updateSalesStatus(user, formData);
   revalidateLead(String(formData.get("leadId") ?? ""));
   return result;
 }
 
-export async function updateLeadAssignmentAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+export async function updateRetentionStatusAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireAuthenticatedUser();
-  const result = await updateLeadAssignment(user, formData);
+  const result = await updateRetentionStatus(user, formData);
+  revalidateLead(String(formData.get("leadId") ?? ""));
+  return result;
+}
+
+export async function updateActiveTeamAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await updateActiveTeam(user, formData);
+  revalidateLead(String(formData.get("leadId") ?? ""));
+  return result;
+}
+
+export async function updateSalesAssignmentAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await updateSalesAssignment(user, formData);
+  revalidateLead(String(formData.get("leadId") ?? ""));
+  return result;
+}
+
+export async function updateRetentionAssignmentAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await updateRetentionAssignment(user, formData);
   revalidateLead(String(formData.get("leadId") ?? ""));
   return result;
 }

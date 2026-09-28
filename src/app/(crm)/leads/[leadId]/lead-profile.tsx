@@ -2,12 +2,13 @@
 
 import { BadgeDollarSign, FileText, MessageSquarePlus, NotebookText, ShieldAlert, Trash2, UserRoundCog } from "lucide-react";
 import { useActionState, useState } from "react";
-import { addDepositAction, addNoteAction, deleteLeadAction, deletePinnedNoteAction, toggleNotePinAction, updateLeadAssignmentAction, updateLeadProfileAction, updateLeadStatusAction } from "@/app/(crm)/crm-actions";
+import { addDepositAction, addNoteAction, deleteLeadAction, deletePinnedNoteAction, toggleNotePinAction, updateActiveTeamAction, updateLeadProfileAction, updateRetentionAssignmentAction, updateRetentionStatusAction, updateSalesAssignmentAction, updateSalesStatusAction } from "@/app/(crm)/crm-actions";
 import { ActionMessage } from "@/components/action-state";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountryCode } from "@/components/country-code";
 import { SubmitButton } from "@/components/submit-button";
-import { RETENTION_STATUSES, RETENTION_STATUS_LABELS, ROLE_LABELS, emptyActionState, type AgentOption, type LeadDetail } from "@/lib/leads/types";
+import { canAddDeposit, canAddNote, canEditProfile, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
+import { ACTIVE_TEAMS, ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, ROLE_LABELS, SALES_STATUSES, SALES_STATUS_LABELS, emptyActionState, type AgentOption, type AuthenticatedLeadUser, type LeadDetail } from "@/lib/leads/types";
 
 const exactDateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
 const longDateTime = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
@@ -55,31 +56,26 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function SummaryCard({ label, value, detail, icon }: { label: string; value: React.ReactNode; detail?: React.ReactNode; icon?: React.ReactNode }) {
-  return (
-    <section className="summary-card">
-      <span>{icon}{label}</span>
-      <strong>{dash(value)}</strong>
-      {detail && <small>{detail}</small>}
-    </section>
-  );
+  return <section className="summary-card"><span>{icon}{label}</span><strong>{dash(value)}</strong>{detail && <small>{detail}</small>}</section>;
 }
 
 function ActionPanel({ state }: { state: { ok: boolean; message: string } }) {
   return <ActionMessage state={state} />;
 }
 
-function statusClass(status: LeadDetail["retentionStatus"]) {
+function statusClass(status: string) {
   return `status-${status.toLocaleLowerCase().replaceAll("_", "-")}`;
 }
 
-function PinnedNoteCard({ note, leadId, canDelete }: { note: LeadDetail["pinnedNotes"][number]; leadId: string; canDelete: boolean }) {
+function PinnedNoteCard({ note, leadId, canPin }: { note: LeadDetail["pinnedNotes"][number]; leadId: string; canPin: boolean }) {
   const [deleteState, deleteAction, pending] = useActionState(deletePinnedNoteAction, emptyActionState);
+  const author = note.createdBy ? `${note.createdBy.fullName} - ${ROLE_LABELS[note.createdBy.role]}` : "System";
 
   return (
     <article className="pinned-note">
       <header className="pinned-note-header">
-        <small>by {note.createdBy.fullName} - {longDateTime.format(note.createdAt)}</small>
-        {canDelete && <form action={deleteAction} onSubmit={(event) => { if (!confirm("Delete pinned note?\n\nAre you sure you want to permanently delete this note?")) event.preventDefault(); }}>
+        <small>{author} - {longDateTime.format(note.createdAt)}</small>
+        {canPin && <form action={deleteAction} onSubmit={(event) => { if (!confirm("Delete pinned note?\n\nAre you sure you want to permanently delete this note?")) event.preventDefault(); }}>
           <input type="hidden" name="leadId" value={leadId} />
           <input type="hidden" name="noteId" value={note.id} />
           <button className="note-delete-button" type="submit" title="Delete pinned note" aria-label="Delete pinned note" disabled={pending}>
@@ -93,16 +89,29 @@ function PinnedNoteCard({ note, leadId, canDelete }: { note: LeadDetail["pinnedN
   );
 }
 
-export function LeadProfile({ lead, agents, isAdmin }: { lead: LeadDetail; agents: AgentOption[]; isAdmin: boolean }) {
+export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { lead: LeadDetail; salesAgents: AgentOption[]; retentionAgents: AgentOption[]; viewer: AuthenticatedLeadUser }) {
   const latestNote = lead.notes[0] ?? null;
   const lastActivityAt = latestNote?.createdAt ?? lead.lastDeposit?.createdAt ?? lead.updatedAt;
   const [tab, setTab] = useState<Tab>("profile");
   const [noteOpen, setNoteOpen] = useState(false);
-  const [statusState, statusAction] = useActionState(updateLeadStatusAction, emptyActionState);
-  const [assignmentState, assignmentAction] = useActionState(updateLeadAssignmentAction, emptyActionState);
+  const [salesStatusState, salesStatusAction] = useActionState(updateSalesStatusAction, emptyActionState);
+  const [retentionStatusState, retentionStatusAction] = useActionState(updateRetentionStatusAction, emptyActionState);
+  const [activeTeamState, activeTeamAction] = useActionState(updateActiveTeamAction, emptyActionState);
+  const [salesAssignmentState, salesAssignmentAction] = useActionState(updateSalesAssignmentAction, emptyActionState);
+  const [retentionAssignmentState, retentionAssignmentAction] = useActionState(updateRetentionAssignmentAction, emptyActionState);
   const [profileState, profileAction] = useActionState(updateLeadProfileAction, emptyActionState);
   const [depositState, depositAction] = useActionState(addDepositAction, emptyActionState);
   const [noteState, setNoteState] = useState(emptyActionState);
+
+  const accessLead = { activeTeam: lead.activeTeam, salesAgentId: lead.salesAgent?.id ?? null, retentionAgentId: lead.retentionAgent?.id ?? null };
+  const isAdmin = viewer.role === "ADMIN";
+  const activeTeamEditable = canUpdateActiveTeam(viewer);
+  const salesStatusEditable = canEditSalesStatus(viewer, accessLead);
+  const retentionStatusEditable = canEditRetentionStatus(viewer, accessLead);
+  const depositEditable = canAddDeposit(viewer, accessLead);
+  const notesEditable = canAddNote(viewer, accessLead);
+  const profileEditable = canEditProfile(viewer);
+  const pinEditable = canToggleNotePin(viewer, accessLead);
 
   async function noteAction(formData: FormData) {
     const result = await addNoteAction(emptyActionState, formData);
@@ -117,28 +126,34 @@ export function LeadProfile({ lead, agents, isAdmin }: { lead: LeadDetail; agent
         <div className="profile-header-actions">
           {isAdmin && <form action={deleteLeadAction} onSubmit={(event) => { if (!confirm(`Delete ${lead.firstName} ${lead.lastName}?`)) event.preventDefault(); }}><input type="hidden" name="leadId" value={lead.id} /><button className="danger-button"><Trash2 size={14} />Delete lead</button></form>}
           <button type="button" onClick={() => document.getElementById("status-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}>Change acquisition status</button>
-          <button className="compact-primary" type="button" onClick={() => setNoteOpen(true)}><MessageSquarePlus size={14} />Add note</button>
+          <button className="compact-primary" type="button" onClick={() => setNoteOpen(true)} disabled={!notesEditable}><MessageSquarePlus size={14} />Add note</button>
         </div>
       </div>
 
       <div className="summary-grid">
         <SummaryCard label="ACCOUNT STATUS" icon={<ShieldAlert size={14} />} value={<span className="status-warning">{accountStatusLabels[lead.accountStatus]}</span>} />
+        <SummaryCard label="ACTIVE TEAM" value={ACTIVE_TEAM_LABELS[lead.activeTeam]} />
         <SummaryCard label="TOTAL BALANCE" icon={<BadgeDollarSign size={14} />} value={money(lead.totalBalance)} />
         <SummaryCard label="AFFILIATE" value={lead.affiliate} />
         <SummaryCard label="LAST ACTIVITY" value={relative(lastActivityAt)} detail={exactDateTime.format(lastActivityAt)} />
         <SummaryCard label="REGISTERED" value={relative(lead.createdAt)} detail={exactDateTime.format(lead.createdAt)} />
-        <SummaryCard label="LAST LOGIN" value={null} />
       </div>
 
       {isAdmin && <section className="profile-section assignment-panel">
-        <h2><UserRoundCog size={16} />Assigned Retention Agent</h2>
-        <p className="muted">Retention agents only see leads assigned to them.</p>
-        <form action={assignmentAction} className="inline-form">
+        <h2><UserRoundCog size={16} />Assignments</h2>
+        <p className="muted">Sales and Retention assignments indicate the primary responsible user for each department.</p>
+        <form action={salesAssignmentAction} className="inline-form">
           <input type="hidden" name="leadId" value={lead.id} />
-          <select name="assignedAgentId" defaultValue={lead.assignedAgent?.id ?? ""}><option value="">Unassigned</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select>
-          <SubmitButton>Update</SubmitButton>
+          <select name="salesAgentId" defaultValue={lead.salesAgent?.id ?? ""}><option value="">Unassigned Sales</option>{salesAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select>
+          <SubmitButton>Update Sales</SubmitButton>
         </form>
-        <ActionPanel state={assignmentState} />
+        <ActionPanel state={salesAssignmentState} />
+        <form action={retentionAssignmentAction} className="inline-form">
+          <input type="hidden" name="leadId" value={lead.id} />
+          <select name="retentionAgentId" defaultValue={lead.retentionAgent?.id ?? ""}><option value="">Unassigned Retention</option>{retentionAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select>
+          <SubmitButton>Update Retention</SubmitButton>
+        </form>
+        <ActionPanel state={retentionAssignmentState} />
       </section>}
 
       <div className="overview-grid">
@@ -162,38 +177,56 @@ export function LeadProfile({ lead, agents, isAdmin }: { lead: LeadDetail; agent
         <section className="profile-section status-card" id="status-card">
           <h2>Acquisition status</h2>
           <div className="status-group">
+            <span>ACTIVE TEAM</span>
+            <div className="status-current-line">
+              <span className="status-box">{ACTIVE_TEAM_LABELS[lead.activeTeam]}</span>
+            </div>
+            <form action={activeTeamAction} className="status-form">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <select name="activeTeam" defaultValue={lead.activeTeam} disabled={!activeTeamEditable}>{ACTIVE_TEAMS.map((team) => <option key={team} value={team}>{ACTIVE_TEAM_LABELS[team]}</option>)}</select>
+              <SubmitButton disabled={!activeTeamEditable}>Update active team</SubmitButton>
+            </form>
+          </div>
+          <div className="status-group">
+            <span>SALES</span>
+            <div className="status-current-line">
+              <span className={`status-box ${statusClass(lead.salesStatus)}`}>{SALES_STATUS_LABELS[lead.salesStatus]}</span>
+              {lead.salesAgent && <small>{lead.salesAgent.fullName}</small>}
+            </div>
+            <form action={salesStatusAction} className="status-form">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <select name="salesStatus" defaultValue={lead.salesStatus} disabled={!salesStatusEditable}>{SALES_STATUSES.map((status) => <option key={status} value={status}>{SALES_STATUS_LABELS[status]}</option>)}</select>
+              <SubmitButton disabled={!salesStatusEditable}>Update sales</SubmitButton>
+            </form>
+          </div>
+          <div className="status-group">
             <span>RETENTION</span>
             <div className="status-current-line">
               <span className={`status-box ${statusClass(lead.retentionStatus)}`}>{RETENTION_STATUS_LABELS[lead.retentionStatus]}</span>
-              {lead.assignedAgent && <small>{lead.assignedAgent.fullName}</small>}
+              {lead.retentionAgent && <small>{lead.retentionAgent.fullName}</small>}
             </div>
-            <form action={statusAction} className="status-form">
+            <form action={retentionStatusAction} className="status-form">
               <input type="hidden" name="leadId" value={lead.id} />
-              <select name="retentionStatus" defaultValue={lead.retentionStatus}>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select>
-              <SubmitButton>Update status</SubmitButton>
+              <select name="retentionStatus" defaultValue={lead.retentionStatus} disabled={!retentionStatusEditable}>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select>
+              <SubmitButton disabled={!retentionStatusEditable}>Update retention</SubmitButton>
             </form>
           </div>
-          <div className="status-group status-unavailable">
-            <span>SALES</span>
-            <strong>-</strong>
-          </div>
-          <ActionPanel state={statusState} />
+          <ActionPanel state={activeTeamState} />
+          <ActionPanel state={salesStatusState} />
+          <ActionPanel state={retentionStatusState} />
         </section>
 
-        <section className="profile-section ip-panel">
-          <h2>Last 10 IPs</h2>
-          <p className="empty-inline">-</p>
-        </section>
+        <section className="profile-section ip-panel"><h2>Last 10 IPs</h2><p className="empty-inline">-</p></section>
 
         <aside className="pinned-panel">
           <h2><NotebookText size={16} />Pinned notes</h2>
-          {lead.pinnedNotes.length ? lead.pinnedNotes.map((note) => <PinnedNoteCard key={note.id} note={note} leadId={lead.id} canDelete={isAdmin} />) : <p className="empty-inline">No pinned notes.</p>}
+          {lead.pinnedNotes.length ? lead.pinnedNotes.map((note) => <PinnedNoteCard key={note.id} note={note} leadId={lead.id} canPin={pinEditable} />) : <p className="empty-inline">No pinned notes.</p>}
         </aside>
       </div>
 
       <section className="profile-section latest-note-panel">
         <h2><NotebookText size={16} />Latest note</h2>
-        {latestNote ? <article className="latest-note"><small>{latestNote.createdBy.fullName} - {longDateTime.format(latestNote.createdAt)}</small><p>{latestNote.body}</p></article> : <p className="empty-inline">No notes.</p>}
+        {latestNote ? <article className="latest-note"><small>{latestNote.createdBy ? `${latestNote.createdBy.fullName} - ${ROLE_LABELS[latestNote.createdBy.role]}` : "System"} - {longDateTime.format(latestNote.createdAt)}</small><p>{latestNote.body}</p></article> : <p className="empty-inline">No notes.</p>}
       </section>
 
       <div className="tabs" role="tablist">
@@ -203,8 +236,8 @@ export function LeadProfile({ lead, agents, isAdmin }: { lead: LeadDetail; agent
       </div>
 
       {tab === "profile" && <section className="profile-section tab-panel">
-        <h2><FileText size={16} />{isAdmin ? "Edit profile & balance" : "Profile details"}</h2>
-        {isAdmin ? <form action={profileAction} className="profile-form">
+        <h2><FileText size={16} />{profileEditable ? "Edit profile & balance" : "Profile details"}</h2>
+        {profileEditable ? <form action={profileAction} className="profile-form">
           <input type="hidden" name="leadId" value={lead.id} />
           <label><span>First name</span><input name="firstName" defaultValue={lead.firstName} required /></label>
           <label><span>Last name</span><input name="lastName" defaultValue={lead.lastName} required /></label>
@@ -242,21 +275,21 @@ export function LeadProfile({ lead, agents, isAdmin }: { lead: LeadDetail; agent
           <InfoRow label="First deposit" value={lead.firstDeposit ? `${money(lead.firstDeposit.amount)} - ${exactDateTime.format(lead.firstDeposit.createdAt)}` : null} />
           <InfoRow label="Last deposit" value={lead.lastDeposit ? `${money(lead.lastDeposit.amount)} - ${exactDateTime.format(lead.lastDeposit.createdAt)}` : null} />
         </div>
-        {isAdmin && <form action={depositAction} className="inline-form add-deposit-form">
+        <form action={depositAction} className="inline-form add-deposit-form">
           <input type="hidden" name="leadId" value={lead.id} />
-          <label><span>Add deposit (USD)</span><input name="amount" inputMode="decimal" placeholder="700.00" required /></label>
-          <SubmitButton>Add deposit</SubmitButton>
+          <label><span>Add deposit (USD)</span><input name="amount" inputMode="decimal" placeholder="700.00" required disabled={!depositEditable} /></label>
+          <SubmitButton disabled={!depositEditable}>Add deposit</SubmitButton>
           <ActionPanel state={depositState} />
-        </form>}
+        </form>
         {lead.deposits.length ? <table className="history-table"><thead><tr><th>Amount</th><th>Date/time</th><th>Added by</th></tr></thead><tbody>{lead.deposits.map((deposit) => <tr key={deposit.id}><td>{money(deposit.amount)}</td><td>{exactDateTime.format(deposit.createdAt)}</td><td>{deposit.createdBy.fullName}</td></tr>)}</tbody></table> : <p className="empty-inline">No deposits.</p>}
       </section>}
 
       {tab === "notes" && <section className="profile-section tab-panel">
         <h2><NotebookText size={16} />Notes</h2>
         {lead.notes.length ? <div className="note-list">{lead.notes.map((note) => <article key={note.id} className={note.isPinned ? "note pinned" : "note"}>
-          <header><strong>{note.createdBy.fullName}</strong><span>{ROLE_LABELS[note.createdBy.role]} - {longDateTime.format(note.createdAt)}</span></header>
+          <header><strong>{note.createdBy?.fullName ?? "System"}</strong><span>{note.createdBy ? ROLE_LABELS[note.createdBy.role] : "System"} - {longDateTime.format(note.createdAt)}</span></header>
           <p>{note.body}</p>
-          <form action={toggleNotePinAction}><input type="hidden" name="leadId" value={lead.id} /><input type="hidden" name="noteId" value={note.id} /><button type="submit">{note.isPinned ? "Unpin" : "Pin"}</button></form>
+          <form action={toggleNotePinAction}><input type="hidden" name="leadId" value={lead.id} /><input type="hidden" name="noteId" value={note.id} /><button type="submit" disabled={!pinEditable || note.kind === "SYSTEM"}>{note.isPinned ? "Unpin" : "Pin"}</button></form>
         </article>)}</div> : <p className="empty-inline">No notes.</p>}
       </section>}
 

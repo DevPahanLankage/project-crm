@@ -1,6 +1,6 @@
 import "dotenv/config";
 import argon2 from "argon2";
-import { Prisma, PrismaClient, RetentionStatus, Role } from "@prisma/client";
+import { LeadActiveTeam, Prisma, PrismaClient, RetentionStatus, Role, SalesStatus } from "@prisma/client";
 
 const datasourceUrl = process.env.DATABASE_URL;
 const prisma = new PrismaClient({
@@ -11,6 +11,7 @@ const firstNames = ["Avery", "Briar", "Cato", "Della", "Elio", "Faye", "Galen", 
 const lastNames = ["Stone", "Vale", "North", "Ember", "Quill", "Reed", "Voss", "Hart", "Lane", "Morrow", "Pine", "Cross"];
 const countries = ["GB", "CA", "RO", "PT", "DE", "FR", "ES", "IT", "NL", "PL", "US", "AU"];
 const statuses = Object.values(RetentionStatus);
+const salesStatuses = Object.values(SalesStatus);
 
 function usd(value: number) {
   return new Prisma.Decimal(value).toDecimalPlaces(2);
@@ -56,6 +57,10 @@ async function main() {
     upsertUser("Riley Quartz", "riley.agent@example.com", "agent-password-123", Role.RETENTION_AGENT),
     upsertUser("Sam Ledger", "sam.agent@example.com", "agent-password-123", Role.RETENTION_AGENT),
   ]);
+  const salesAgents = await Promise.all([
+    upsertUser("Casey Sales", "casey.sales@example.com", "sales-password-123", Role.SALES_AGENT),
+    upsertUser("Jordan Sales", "jordan.sales@example.com", "sales-password-123", Role.SALES_AGENT),
+  ]);
 
   const existingSeedLeads = await prisma.lead.findMany({
     where: { email: { startsWith: "lead.", endsWith: "@example.com" } },
@@ -69,6 +74,10 @@ async function main() {
     if (existingSeedEmails.has(email)) continue;
     const createdAt = new Date(Date.UTC(2026, index % 8, (index % 27) + 1, 8 + (index % 10), (index * 11) % 60));
     const assignedAgent = index % 5 === 0 ? null : agents[index % agents.length];
+    const salesStatus = index % 6 === 0 ? salesStatuses[Math.floor(index / 6) % salesStatuses.length] : SalesStatus.NEW;
+    const salesAgent = salesStatus === SalesStatus.NEW ? null : salesAgents[index % salesAgents.length];
+    const retentionStatus = statuses[index % statuses.length];
+    const activeTeam = assignedAgent || retentionStatus !== RetentionStatus.NEW ? LeadActiveTeam.RETENTION : salesStatus !== SalesStatus.NEW ? LeadActiveTeam.SALES : LeadActiveTeam.OPEN;
     const lead = await prisma.lead.create({
       data: {
         firstName: firstNames[index % firstNames.length],
@@ -80,7 +89,11 @@ async function main() {
         language: index % 2 === 0 ? "English" : null,
         timeZone: index % 4 === 0 ? "UTC" : null,
         additionalInfo: index % 7 === 0 ? "Prefers afternoon callbacks." : null,
-        retentionStatus: statuses[index % statuses.length],
+        salesStatus,
+        retentionStatus,
+        activeTeam,
+        salesAgentId: salesAgent?.id ?? null,
+        retentionAgentId: assignedAgent?.id ?? null,
         assignedAgentId: assignedAgent?.id ?? null,
         createdAt,
       },
@@ -128,7 +141,7 @@ async function main() {
     where: { email: { startsWith: "lead.", endsWith: "@example.com" } },
   });
 
-  console.log(`Seed complete. Admin: ${adminEmail}. Agents: ${agents.length}. Created leads: ${createdLeads}. Seed leads total: ${totalSeedLeads}.`);
+  console.log(`Seed complete. Admin: ${adminEmail}. Sales agents: ${salesAgents.length}. Retention agents: ${agents.length}. Created leads: ${createdLeads}. Seed leads total: ${totalSeedLeads}.`);
 }
 
 main()

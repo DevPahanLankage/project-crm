@@ -9,6 +9,7 @@ datasource db {
 
 enum Role {
   ADMIN
+  SALES_AGENT
   RETENTION_AGENT
 }
 
@@ -26,19 +27,42 @@ enum RetentionStatus {
   DEPOSITED
 }
 
+enum SalesStatus {
+  NEW
+  CONTACTED
+  NO_ANSWER
+  INTERESTED
+  PAYMENT_PENDING
+  CONVERTED
+  NO_INTEREST
+}
+
+enum LeadActiveTeam {
+  OPEN
+  SALES
+  RETENTION
+}
+
+enum NoteKind {
+  USER
+  SYSTEM
+}
+
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  fullName        String
-  passwordHash    String
-  role            Role
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  sessions        Session[]
-  assignedLeads   Lead[]    @relation("AssignedAgent")
-  createdDeposits Deposit[] @relation("DepositCreator")
-  createdNotes    Note[]    @relation("NoteCreator")
+  id                     String    @id @default(cuid())
+  email                  String    @unique
+  fullName               String
+  passwordHash           String
+  role                   Role
+  active                 Boolean   @default(true)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  sessions               Session[]
+  assignedLeads          Lead[]    @relation("AssignedAgent")
+  assignedSalesLeads     Lead[]    @relation("SalesAgent")
+  assignedRetentionLeads Lead[]    @relation("RetentionAgent")
+  createdDeposits        Deposit[] @relation("DepositCreator")
+  createdNotes           Note[]    @relation("NoteCreator")
 }
 
 model Session {
@@ -70,7 +94,13 @@ model Lead {
   additionalInfo   String?
   affiliate        String?
   accountStatus    AccountStatus   @default(NOT_VERIFIED)
+  salesStatus      SalesStatus     @default(NEW)
   retentionStatus  RetentionStatus @default(NEW)
+  activeTeam       LeadActiveTeam  @default(OPEN)
+  salesAgentId     String?
+  salesAgent       User?           @relation("SalesAgent", fields: [salesAgentId], references: [id], onDelete: SetNull)
+  retentionAgentId String?
+  retentionAgent   User?           @relation("RetentionAgent", fields: [retentionAgentId], references: [id], onDelete: SetNull)
   assignedAgentId  String?
   assignedAgent    User?           @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
   totalBalance     Decimal         @default(0) @db.Decimal(18, 2)
@@ -88,13 +118,20 @@ model Lead {
   @@index([email])
   @@index([phone])
   @@index([countryCode])
+  @@index([salesStatus])
   @@index([retentionStatus])
+  @@index([activeTeam])
+  @@index([salesAgentId])
+  @@index([retentionAgentId])
   @@index([assignedAgentId])
   @@index([createdAt])
   @@index([firstDepositAt])
   @@index([lastDepositAt])
   @@index([firstNoteAt])
   @@index([lastNoteAt])
+  @@index([activeTeam, createdAt])
+  @@index([salesAgentId, createdAt])
+  @@index([retentionAgentId, createdAt])
   @@index([assignedAgentId, createdAt])
 }
 
@@ -115,11 +152,12 @@ model Note {
   id              String   @id @default(cuid())
   leadId          String
   body            String
+  kind            NoteKind @default(USER)
   isPinned        Boolean  @default(false)
-  createdByUserId String
+  createdByUserId String?
   createdAt       DateTime @default(now())
   lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  createdBy       User     @relation("NoteCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdBy       User?    @relation("NoteCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   @@index([leadId, createdAt])
   @@index([leadId, isPinned])

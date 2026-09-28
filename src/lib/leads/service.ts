@@ -23,6 +23,11 @@ export async function getRetentionAgents() {
   return listActiveRetentionAgents();
 }
 
+export async function getSalesAgents() {
+  const { listActiveSalesAgents } = await import("@/lib/leads/prisma-repository");
+  return listActiveSalesAgents();
+}
+
 export async function getUsersForAdmin(): Promise<UserListItem[]> {
   const { listUsersForAdmin } = await import("@/lib/leads/prisma-repository");
   return listUsersForAdmin();

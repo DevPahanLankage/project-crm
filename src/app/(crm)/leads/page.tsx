@@ -31,7 +31,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   return (
     <div className="leads-page">
       <div className="leads-heading"><h1>{result.total.toLocaleString("en-US")} Clients found</h1></div>
-      <LeadFilters query={query} agents={result.agents} countryOptions={result.countryOptions} isAdmin={isAdmin} />
+      <LeadFilters query={query} salesAgents={result.salesAgents} retentionAgents={result.retentionAgents} countryOptions={result.countryOptions} isAdmin={isAdmin} />
       <div className="table-panel">
         <div className="table-toolbar">
           <form className="global-search" action="/leads" method="get">
@@ -41,7 +41,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           </form>
           <RefreshButton />
         </div>
-        {result.items.length ? <LeadsTable items={result.items} agents={result.agents} isAdmin={isAdmin} query={query} params={params} /> : <div className="leads-empty"><strong>{isAdmin ? "No leads found" : "No assigned clients found."}</strong><span>Try changing or resetting the current filters.</span></div>}
+        {result.items.length ? <LeadsTable items={result.items} retentionAgents={result.retentionAgents} isAdmin={isAdmin} query={query} params={params} /> : <div className="leads-empty"><strong>No leads found</strong><span>Try changing or resetting the current filters.</span></div>}
         <div className="table-footer">
           <form className="page-size-form" action="/leads" method="get">
             {preservedInputs(params, ["page", "pageSize"])}

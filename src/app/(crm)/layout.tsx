@@ -7,7 +7,7 @@ import { requireAuthenticatedUser } from "@/lib/auth";
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
   const user = await requireAuthenticatedUser();
-  const roleLabel = user.role === "ADMIN" ? "Admin" : "Retention agent";
+  const roleLabel = user.role === "ADMIN" ? "Admin" : user.role === "SALES_AGENT" ? "Sales agent" : "Retention agent";
 
   return (
     <div className="app-shell">

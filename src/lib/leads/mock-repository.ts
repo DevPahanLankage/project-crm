@@ -6,11 +6,16 @@ const MOCK_AGENTS: AgentOption[] = [
   { id: "dev-agent-orbit", fullName: "Morgan Orbit" },
   { id: "dev-agent-quartz", fullName: "Riley Quartz" },
 ];
+const MOCK_SALES_AGENTS: AgentOption[] = [
+  { id: "dev-sales", fullName: "Sales Agent" },
+  { id: "dev-sales-nova", fullName: "Nova Sales" },
+];
 
 const FIRST_NAMES = ["Avery", "Briar", "Cato", "Della", "Elio", "Fable", "Galen", "Hera", "Indie", "Juno", "Kestrel", "Lumi", "Miro", "Nova"];
 const LAST_NAMES = ["Quill", "North", "Vale", "Ember", "Rune", "Morrow", "Lark", "Pine", "Solace", "Vesper", "Cinder"];
 const COUNTRY_CODES = ["CA", "RO", "PT", "GB", "AU", "DE", "ES", "FR", "IE", "IT", "NL", "PL", "US", "ZA"];
 const STATUSES = ["NEW", "NO_ANSWER", "NO_INTEREST", "POTENTIAL_LOW", "ACTIVE", "ACTIVE_VIP", "DEPOSITED"] as const;
+const SALES_STATUSES = ["NEW", "CONTACTED", "NO_ANSWER", "INTERESTED", "PAYMENT_PENDING", "CONVERTED", "NO_INTEREST"] as const;
 const NOTE_PREVIEWS = ["Requested a callback next week.", "Prefers communication by email.", "Reviewed account information.", "Follow-up window confirmed."];
 
 type MockLead = LeadListItem & { balanceCents: number };
@@ -19,6 +24,11 @@ function mockAgent(index: number) {
   if (index % 5 === 0) return null;
   if (index % 2 === 0) return MOCK_AGENTS[0];
   return MOCK_AGENTS[(index % 4 === 1) ? 1 : 2];
+}
+
+function mockSalesAgent(index: number) {
+  if (index % 6 !== 0) return null;
+  return MOCK_SALES_AGENTS[index % MOCK_SALES_AGENTS.length];
 }
 
 function createMockLeads(): MockLead[] {
@@ -33,6 +43,11 @@ function createMockLeads(): MockLead[] {
     const lastDepositAt = firstDepositAt && index % 2 === 0 ? new Date(firstDepositAt.getTime() + (index % 20 + 2) * 86_400_000) : firstDepositAt;
     const lastDepositCents = firstDepositAt ? firstDepositCents + (index % 5) * 2_500 : 0;
 
+    const retentionAgent = mockAgent(index);
+    const salesStatus = SALES_STATUSES[index % SALES_STATUSES.length];
+    const retentionStatus = STATUSES[offset % STATUSES.length];
+    const salesAgent = mockSalesAgent(index);
+    const activeTeam = retentionAgent || retentionStatus !== "NEW" ? "RETENTION" : salesStatus !== "NEW" ? "SALES" : "OPEN";
     return {
       id: `cmock${String(index).padStart(5, "0")}fictional`,
       firstName: FIRST_NAMES[offset % FIRST_NAMES.length],
@@ -40,13 +55,16 @@ function createMockLeads(): MockLead[] {
       countryCode: COUNTRY_CODES[(offset * 5) % COUNTRY_CODES.length],
       balanceCents,
       totalBalance: (balanceCents / 100).toFixed(2),
-      retentionStatus: STATUSES[offset % STATUSES.length],
-      assignedAgent: mockAgent(index),
+      salesStatus,
+      retentionStatus,
+      activeTeam,
+      salesAgent,
+      retentionAgent,
       createdAt,
       firstDeposit: firstDepositAt ? { amount: (firstDepositCents / 100).toFixed(2), at: firstDepositAt } : null,
       lastDeposit: lastDepositAt ? { amount: (lastDepositCents / 100).toFixed(2), at: lastDepositAt } : null,
       firstNoteAt,
-      lastNote: lastNoteAt ? { at: lastNoteAt, author: mockAgent(index)?.fullName ?? "Administrator", preview: NOTE_PREVIEWS[index % NOTE_PREVIEWS.length] } : null,
+      lastNote: lastNoteAt ? { at: lastNoteAt, author: retentionAgent?.fullName ?? salesAgent?.fullName ?? "Administrator", preview: NOTE_PREVIEWS[index % NOTE_PREVIEWS.length] } : null,
     };
   });
 }
@@ -70,7 +88,9 @@ function compare(a: MockLead, b: MockLead, query: LeadQuery) {
   if (query.sort === "balance") result = a.balanceCents - b.balanceCents;
   if (query.sort === "registration") result = a.createdAt.getTime() - b.createdAt.getTime();
   if (query.sort === "lastNote") result = (a.lastNote?.at.getTime() ?? 0) - (b.lastNote?.at.getTime() ?? 0);
+  if (query.sort === "salesStatus") result = a.salesStatus.localeCompare(b.salesStatus);
   if (query.sort === "retentionStatus") result = a.retentionStatus.localeCompare(b.retentionStatus);
+  if (query.sort === "activeTeam") result = a.activeTeam.localeCompare(b.activeTeam);
   return (query.direction === "asc" ? result : -result) || a.id.localeCompare(b.id);
 }
 
@@ -93,9 +113,14 @@ function applyNonCountryFilters(rows: MockLead[], user: AuthenticatedLeadUser, q
   }
   if (query.leadId) filtered = filtered.filter((lead) => includes(lead.id, query.leadId));
   if (query.name) filtered = filtered.filter((lead) => includes(`${lead.firstName} ${lead.lastName}`, query.name));
-  if (query.status) filtered = filtered.filter((lead) => lead.retentionStatus === query.status);
-  if (user.role === "ADMIN" && query.agent) {
-    filtered = query.agent === "unassigned" ? filtered.filter((lead) => !lead.assignedAgent) : filtered.filter((lead) => lead.assignedAgent?.id === query.agent);
+  if (query.salesStatus) filtered = filtered.filter((lead) => lead.salesStatus === query.salesStatus);
+  if (query.retentionStatus) filtered = filtered.filter((lead) => lead.retentionStatus === query.retentionStatus);
+  if (query.activeTeam) filtered = filtered.filter((lead) => lead.activeTeam === query.activeTeam);
+  if (user.role === "ADMIN" && query.salesAgent) {
+    filtered = query.salesAgent === "unassigned" ? filtered.filter((lead) => !lead.salesAgent) : filtered.filter((lead) => lead.salesAgent?.id === query.salesAgent);
+  }
+  if (user.role === "ADMIN" && query.retentionAgent) {
+    filtered = query.retentionAgent === "unassigned" ? filtered.filter((lead) => !lead.retentionAgent) : filtered.filter((lead) => lead.retentionAgent?.id === query.retentionAgent);
   }
   return filtered.filter((lead) =>
     inDateRange(lead.createdAt, query.registrationFrom, query.registrationTo) &&
@@ -107,7 +132,7 @@ function applyNonCountryFilters(rows: MockLead[], user: AuthenticatedLeadUser, q
 
 export async function listMockLeads(user: AuthenticatedLeadUser, query: LeadQuery): Promise<LeadPageResult> {
   // Authorization scope is deliberately applied before any browser-controlled filters.
-  let rows = user.role === "ADMIN" ? MOCK_LEADS : MOCK_LEADS.filter((lead) => lead.assignedAgent?.id === user.id);
+  let rows = user.role === "ADMIN" ? MOCK_LEADS : user.role === "SALES_AGENT" ? MOCK_LEADS.filter((lead) => lead.activeTeam === "OPEN" || lead.salesAgent?.id === user.id || (lead.activeTeam === "SALES" && !lead.salesAgent)) : MOCK_LEADS.filter((lead) => lead.activeTeam === "OPEN" || lead.activeTeam === "SALES" || lead.retentionAgent?.id === user.id);
   rows = applyNonCountryFilters(rows, user, query);
   const options = countryOptions(rows);
 
@@ -118,11 +143,11 @@ export async function listMockLeads(user: AuthenticatedLeadUser, query: LeadQuer
   const totalPages = query.pageSize === "all" ? 1 : Math.max(1, Math.ceil(total / query.pageSize));
   const page = query.pageSize === "all" ? 1 : Math.min(query.page, totalPages);
   const items = query.pageSize === "all" ? rows : rows.slice((page - 1) * query.pageSize, page * query.pageSize);
-  return { items, total, page, agents: MOCK_AGENTS, countryOptions: options };
+  return { items, total, page, salesAgents: MOCK_SALES_AGENTS, retentionAgents: MOCK_AGENTS, countryOptions: options };
 }
 
 export function getMockLeadCountForAgent(agentId: string) {
-  return MOCK_LEADS.filter((lead) => lead.assignedAgent?.id === agentId).length;
+  return MOCK_LEADS.filter((lead) => lead.retentionAgent?.id === agentId || lead.salesAgent?.id === agentId).length;
 }
 
 export function describeMockCountry(code: string | null) {

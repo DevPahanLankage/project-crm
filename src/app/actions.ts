@@ -43,6 +43,12 @@ export async function signIn(_previousState: LoginState, formData: FormData): Pr
         password: "agent123456",
         role: Role.RETENTION_AGENT,
       },
+      "sales@example.com": {
+        id: "dev-sales",
+        fullName: "Sales Agent",
+        password: "sales123456",
+        role: Role.SALES_AGENT,
+      },
     } as const;
     const mockUser = mockUsers[parsed.data.email as keyof typeof mockUsers];
     if (!mockUser || parsed.data.password !== mockUser.password) {

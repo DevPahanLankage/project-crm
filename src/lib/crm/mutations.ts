@@ -1,12 +1,13 @@
 import "server-only";
 
 import argon2 from "argon2";
-import { Prisma, RetentionStatus } from "@prisma/client";
+import { Prisma, type LeadActiveTeam, RetentionStatus, SalesStatus } from "@prisma/client";
 import { z } from "zod";
 import { read, utils } from "xlsx";
 import { getCountry, normalizeCountryCode } from "@/lib/countries";
 import { db } from "@/lib/db";
-import { RETENTION_STATUSES, type ActionState, type AuthenticatedLeadUser } from "@/lib/leads/types";
+import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser } from "@/lib/leads/types";
+import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
 
 const ok = (message: string): ActionState => ({ ok: true, message });
 const fail = (message: string, errors?: Record<string, string[]>): ActionState => ({ ok: false, message, errors });
@@ -16,7 +17,7 @@ const userFormSchema = z.object({
   fullName: z.string().trim().min(1, "Full name is required.").max(120),
   email: z.string().trim().email("Enter a valid email.").transform((value) => value.toLowerCase()),
   password: z.string().max(256).optional(),
-  role: z.enum(["ADMIN", "RETENTION_AGENT"]),
+  role: z.enum(["ADMIN", "SALES_AGENT", "RETENTION_AGENT"]),
 });
 
 const leadProfileSchema = z.object({
@@ -37,8 +38,11 @@ const leadProfileSchema = z.object({
   totalBalance: z.string().trim().min(1),
 });
 
-const statusSchema = z.object({ leadId: z.string().min(1), retentionStatus: z.enum(RETENTION_STATUSES as [RetentionStatus, ...RetentionStatus[]]) });
-const assignmentSchema = z.object({ leadId: z.string().min(1), assignedAgentId: z.string().optional() });
+const salesStatusSchema = z.object({ leadId: z.string().min(1), salesStatus: z.enum(SALES_STATUSES as [SalesStatus, ...SalesStatus[]]) });
+const retentionStatusSchema = z.object({ leadId: z.string().min(1), retentionStatus: z.enum(RETENTION_STATUSES as [RetentionStatus, ...RetentionStatus[]]) });
+const activeTeamSchema = z.object({ leadId: z.string().min(1), activeTeam: z.enum(ACTIVE_TEAMS as [LeadActiveTeam, ...LeadActiveTeam[]]) });
+const salesAssignmentSchema = z.object({ leadId: z.string().min(1), salesAgentId: z.string().optional() });
+const retentionAssignmentSchema = z.object({ leadId: z.string().min(1), retentionAgentId: z.string().optional() });
 const noteSchema = z.object({ leadId: z.string().min(1), body: z.string().trim().min(1).max(5000), isPinned: z.string().optional() });
 const depositSchema = z.object({ leadId: z.string().min(1), amount: z.string().trim().min(1) });
 
@@ -74,10 +78,10 @@ function normalizeOptionalCountry(value: string | undefined) {
 }
 
 
-async function ensureAgent(agentId: string | null) {
+async function ensureAgent(agentId: string | null, role: "SALES_AGENT" | "RETENTION_AGENT") {
   if (!agentId) return null;
-  const agent = await db.user.findFirst({ where: { id: agentId, role: "RETENTION_AGENT", active: true }, select: { id: true } });
-  if (!agent) throw new Error("Choose an active Retention Agent.");
+  const agent = await db.user.findFirst({ where: { id: agentId, role, active: true }, select: { id: true } });
+  if (!agent) throw new Error(`Choose an active ${role === "SALES_AGENT" ? "Sales" : "Retention"} Agent.`);
   return agent.id;
 }
 
@@ -123,6 +127,8 @@ export async function deleteUser(user: AuthenticatedLeadUser, userId: string): P
   try {
     await db.$transaction([
       db.lead.updateMany({ where: { assignedAgentId: userId }, data: { assignedAgentId: null } }),
+      db.lead.updateMany({ where: { salesAgentId: userId }, data: { salesAgentId: null } }),
+      db.lead.updateMany({ where: { retentionAgentId: userId }, data: { retentionAgentId: null } }),
       db.note.updateMany({ where: { createdByUserId: userId }, data: { createdByUserId: user.id } }),
       db.deposit.updateMany({ where: { createdByUserId: userId }, data: { createdByUserId: user.id } }),
       db.user.delete({ where: { id: userId } }),
@@ -136,24 +142,79 @@ export async function deleteUser(user: AuthenticatedLeadUser, userId: string): P
   }
 }
 
-export async function updateLeadStatus(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
-  const parsed = statusSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return fail("Choose a valid Retention Status.", parsed.error.flatten().fieldErrors);
-  const result = await db.lead.updateMany({
-    where: { id: parsed.data.leadId, ...(user.role === "RETENTION_AGENT" ? { assignedAgentId: user.id } : {}) },
-    data: { retentionStatus: parsed.data.retentionStatus },
+export async function updateSalesStatus(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
+  const parsed = salesStatusSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Choose a valid Sales Status.", parsed.error.flatten().fieldErrors);
+  const lead = await db.lead.findUnique({
+    where: { id: parsed.data.leadId },
+    select: { id: true, activeTeam: true, salesAgentId: true, retentionAgentId: true, firstNoteAt: true },
   });
-  if (result.count === 0) return fail("Lead not found or not accessible.");
-  return ok("Status updated.");
+  if (!lead || !canEditSalesStatus(user, lead)) return fail("Lead not found or not accessible.");
+
+  const data: Prisma.LeadUpdateInput = { salesStatus: parsed.data.salesStatus };
+  if (lead.activeTeam === "OPEN" && parsed.data.salesStatus !== "NEW") data.activeTeam = "SALES";
+  if (user.role === "SALES_AGENT" && !lead.salesAgentId && parsed.data.salesStatus !== "NEW") data.salesAgent = { connect: { id: user.id } };
+
+  await db.lead.update({ where: { id: lead.id }, data });
+  return ok("Sales status updated.");
 }
 
-export async function updateLeadAssignment(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
-  requireAdminUser(user);
-  const parsed = assignmentSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return fail("Assignment details need attention.", parsed.error.flatten().fieldErrors);
-  const assignedAgentId = await ensureAgent(optional(parsed.data.assignedAgentId));
-  await db.lead.update({ where: { id: parsed.data.leadId }, data: { assignedAgentId } });
-  return ok(assignedAgentId ? "Lead assigned." : "Lead unassigned.");
+export async function updateRetentionStatus(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
+  const parsed = retentionStatusSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Choose a valid Retention Status.", parsed.error.flatten().fieldErrors);
+  const lead = await db.lead.findUnique({
+    where: { id: parsed.data.leadId },
+    select: { id: true, activeTeam: true, salesAgentId: true, retentionAgentId: true, firstNoteAt: true },
+  });
+  if (!lead || !canEditRetentionStatus(user, lead)) return fail("Lead not found or not accessible.");
+
+  const now = new Date();
+  const previousTeam = lead.activeTeam;
+  const takeover = parsed.data.retentionStatus !== "NEW" && previousTeam !== "RETENTION";
+  await db.$transaction(async (tx) => {
+    const data: Prisma.LeadUpdateInput = { retentionStatus: parsed.data.retentionStatus };
+    if (takeover) data.activeTeam = "RETENTION";
+    if (user.role === "RETENTION_AGENT" && !lead.retentionAgentId && parsed.data.retentionStatus !== "NEW") data.retentionAgent = { connect: { id: user.id } };
+    await tx.lead.update({ where: { id: lead.id }, data });
+
+    if (takeover) {
+      const actor = await tx.user.findUnique({ where: { id: user.id }, select: { fullName: true, role: true } });
+      const roleLabel = actor?.role === "RETENTION_AGENT" ? "Retention Agent" : actor?.role === "SALES_AGENT" ? "Sales Agent" : "Admin";
+      const body = `Lead taken over by ${actor?.fullName ?? "System"} (${roleLabel}). Previous active team: ${previousTeam}.`;
+      await tx.note.create({ data: { leadId: lead.id, body, kind: "SYSTEM", createdAt: now } });
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: { firstNoteAt: lead.firstNoteAt ?? now, lastNoteAt: now },
+      });
+    }
+  });
+  return ok(takeover ? "Retention status updated. Lead moved to Retention." : "Retention status updated.");
+}
+
+export async function updateActiveTeam(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
+  if (!canUpdateActiveTeam(user)) throw new Error("Forbidden");
+  const parsed = activeTeamSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Choose a valid active team.", parsed.error.flatten().fieldErrors);
+  await db.lead.update({ where: { id: parsed.data.leadId }, data: { activeTeam: parsed.data.activeTeam } });
+  return ok("Active team updated.");
+}
+
+export async function updateSalesAssignment(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
+  if (!canAssignSalesAgent(user)) throw new Error("Forbidden");
+  const parsed = salesAssignmentSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Sales assignment details need attention.", parsed.error.flatten().fieldErrors);
+  const salesAgentId = await ensureAgent(optional(parsed.data.salesAgentId), "SALES_AGENT");
+  await db.lead.update({ where: { id: parsed.data.leadId }, data: { salesAgentId } });
+  return ok(salesAgentId ? "Sales agent assigned." : "Sales agent unassigned.");
+}
+
+export async function updateRetentionAssignment(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
+  if (!canAssignRetentionAgent(user)) throw new Error("Forbidden");
+  const parsed = retentionAssignmentSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Retention assignment details need attention.", parsed.error.flatten().fieldErrors);
+  const retentionAgentId = await ensureAgent(optional(parsed.data.retentionAgentId), "RETENTION_AGENT");
+  await db.lead.update({ where: { id: parsed.data.leadId }, data: { retentionAgentId, assignedAgentId: retentionAgentId } });
+  return ok(retentionAgentId ? "Retention agent assigned." : "Retention agent unassigned.");
 }
 
 export async function updateLeadProfile(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
@@ -186,14 +247,13 @@ export async function updateLeadProfile(user: AuthenticatedLeadUser, formData: F
 }
 
 export async function addDeposit(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
-  requireAdminUser(user);
   const parsed = depositSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fail("Deposit details need attention.", parsed.error.flatten().fieldErrors);
   const amount = decimalFromInput(parsed.data.amount, "Deposit");
   const now = new Date();
   await db.$transaction(async (tx) => {
-    const lead = await tx.lead.findUnique({ where: { id: parsed.data.leadId }, select: { totalBalance: true, firstDepositAt: true } });
-    if (!lead) throw new Error("Lead not found.");
+    const lead = await tx.lead.findUnique({ where: { id: parsed.data.leadId }, select: { id: true, totalBalance: true, firstDepositAt: true, activeTeam: true, salesAgentId: true, retentionAgentId: true } });
+    if (!lead || !canAddDeposit(user, lead)) throw new Error("Lead not found or not accessible.");
     await tx.deposit.create({ data: { leadId: parsed.data.leadId, amount, createdByUserId: user.id, createdAt: now } });
     await tx.lead.update({
       where: { id: parsed.data.leadId },
@@ -201,6 +261,7 @@ export async function addDeposit(user: AuthenticatedLeadUser, formData: FormData
         totalBalance: lead.totalBalance.plus(amount),
         firstDepositAt: lead.firstDepositAt ?? now,
         lastDepositAt: now,
+        ...(user.role === "SALES_AGENT" && !lead.salesAgentId ? { salesAgentId: user.id } : {}),
       },
     });
   });
@@ -212,12 +273,12 @@ export async function addNote(user: AuthenticatedLeadUser, formData: FormData): 
   if (!parsed.success) return fail("Note details need attention.", parsed.error.flatten().fieldErrors);
   const now = new Date();
   await db.$transaction(async (tx) => {
-    const lead = await tx.lead.findFirst({
-      where: { id: parsed.data.leadId, ...(user.role === "RETENTION_AGENT" ? { assignedAgentId: user.id } : {}) },
-      select: { id: true, firstNoteAt: true },
+    const lead = await tx.lead.findUnique({
+      where: { id: parsed.data.leadId },
+      select: { id: true, firstNoteAt: true, activeTeam: true, salesAgentId: true, retentionAgentId: true },
     });
-    if (!lead) throw new Error("Lead not found or not accessible.");
-    await tx.note.create({ data: { leadId: lead.id, body: parsed.data.body, isPinned: parsed.data.isPinned === "on", createdByUserId: user.id, createdAt: now } });
+    if (!lead || !canAddNote(user, lead)) throw new Error("Lead not found or not accessible.");
+    await tx.note.create({ data: { leadId: lead.id, body: parsed.data.body, kind: "USER", isPinned: parsed.data.isPinned === "on", createdByUserId: user.id, createdAt: now } });
     await tx.lead.update({ where: { id: lead.id }, data: { firstNoteAt: lead.firstNoteAt ?? now, lastNoteAt: now } });
   });
   return ok("Note added.");
@@ -225,10 +286,10 @@ export async function addNote(user: AuthenticatedLeadUser, formData: FormData): 
 
 export async function toggleNotePin(user: AuthenticatedLeadUser, noteId: string): Promise<ActionState> {
   const note = await db.note.findFirst({
-    where: { id: noteId, ...(user.role === "RETENTION_AGENT" ? { lead: { assignedAgentId: user.id } } : {}) },
-    select: { id: true, isPinned: true },
+    where: { id: noteId },
+    select: { id: true, kind: true, isPinned: true, lead: { select: { activeTeam: true, salesAgentId: true, retentionAgentId: true } } },
   });
-  if (!note) return fail("Note not found or not accessible.");
+  if (!note || note.kind === "SYSTEM" || !canToggleNotePin(user, note.lead)) return fail("Note not found or not accessible.");
   await db.note.update({ where: { id: note.id }, data: { isPinned: !note.isPinned } });
   return ok(note.isPinned ? "Note unpinned." : "Note pinned.");
 }
@@ -268,17 +329,17 @@ export async function deleteLead(user: AuthenticatedLeadUser, leadId: string): P
 
 export async function bulkAssignLeads(user: AuthenticatedLeadUser, leadIds: string[], agentId: string): Promise<ActionState> {
   requireAdminUser(user);
-  const assignedAgentId = await ensureAgent(agentId);
+  const assignedAgentId = await ensureAgent(agentId, "RETENTION_AGENT");
   if (!leadIds.length) return fail("Select at least one lead.");
-  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedAgentId } });
-  return ok(`${leadIds.length} lead(s) assigned.`);
+  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: { retentionAgentId: assignedAgentId, assignedAgentId } });
+  return ok(`${leadIds.length} lead(s) assigned to Retention.`);
 }
 
 export async function bulkUnassignLeads(user: AuthenticatedLeadUser, leadIds: string[]): Promise<ActionState> {
   requireAdminUser(user);
   if (!leadIds.length) return fail("Select at least one lead.");
-  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedAgentId: null } });
-  return ok(`${leadIds.length} lead(s) unassigned.`);
+  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: { retentionAgentId: null, assignedAgentId: null } });
+  return ok(`${leadIds.length} lead(s) unassigned from Retention.`);
 }
 
 export async function bulkDeleteLeads(user: AuthenticatedLeadUser, leadIds: string[]): Promise<ActionState> {
@@ -302,7 +363,7 @@ export async function distributeLeads(user: AuthenticatedLeadUser, leadIds: stri
   if (!eligible.length) return fail("No selected leads match the chosen distribution scope.");
 
   const shuffled = [...eligible.map((lead) => lead.id)].sort(() => Math.random() - 0.5);
-  await db.$transaction(shuffled.map((leadId, index) => db.lead.update({ where: { id: leadId }, data: { assignedAgentId: agents[index % agents.length].id } })));
+  await db.$transaction(shuffled.map((leadId, index) => db.lead.update({ where: { id: leadId }, data: { retentionAgentId: agents[index % agents.length].id, assignedAgentId: agents[index % agents.length].id } })));
   return ok(`${shuffled.length} lead(s) distributed equally.`);
 }
 

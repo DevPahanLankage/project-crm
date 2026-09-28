@@ -1,4 +1,18 @@
-﻿import type { AccountStatus, RetentionStatus, Role } from "@prisma/client";
+import type { AccountStatus, LeadActiveTeam, NoteKind, RetentionStatus, Role, SalesStatus } from "@prisma/client";
+
+export const SALES_STATUSES: readonly SalesStatus[] = [
+  "NEW", "CONTACTED", "NO_ANSWER", "INTERESTED", "PAYMENT_PENDING", "CONVERTED", "NO_INTEREST",
+];
+
+export const SALES_STATUS_LABELS: Record<SalesStatus, string> = {
+  NEW: "NEW",
+  CONTACTED: "CONTACTED",
+  NO_ANSWER: "NO ANSWER",
+  INTERESTED: "INTERESTED",
+  PAYMENT_PENDING: "PAYMENT PENDING",
+  CONVERTED: "CONVERTED",
+  NO_INTEREST: "NO INTEREST",
+};
 
 export const RETENTION_STATUSES: readonly RetentionStatus[] = [
   "NEW", "NO_ANSWER", "NO_INTEREST", "POTENTIAL_LOW", "ACTIVE", "ACTIVE_VIP", "DEPOSITED",
@@ -14,12 +28,21 @@ export const RETENTION_STATUS_LABELS: Record<RetentionStatus, string> = {
   DEPOSITED: "DEPOSITED",
 };
 
+export const ACTIVE_TEAMS: readonly LeadActiveTeam[] = ["OPEN", "SALES", "RETENTION"];
+
+export const ACTIVE_TEAM_LABELS: Record<LeadActiveTeam, string> = {
+  OPEN: "OPEN",
+  SALES: "SALES",
+  RETENTION: "RETENTION",
+};
+
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "Admin",
+  SALES_AGENT: "Sales Agent",
   RETENTION_AGENT: "Retention Agent",
 };
 
-export type LeadSort = "client" | "country" | "balance" | "registration" | "lastNote" | "retentionStatus";
+export type LeadSort = "client" | "country" | "balance" | "registration" | "lastNote" | "salesStatus" | "retentionStatus" | "activeTeam";
 export type SortDirection = "asc" | "desc";
 export type PageSize = 25 | 50 | 100 | "all";
 
@@ -28,8 +51,11 @@ export type LeadQuery = {
   leadId: string;
   country: string[];
   name: string;
-  status: RetentionStatus | null;
-  agent: string;
+  salesStatus: SalesStatus | null;
+  retentionStatus: RetentionStatus | null;
+  activeTeam: LeadActiveTeam | null;
+  salesAgent: string;
+  retentionAgent: string;
   registrationFrom: Date | null;
   registrationTo: Date | null;
   ftdFrom: Date | null;
@@ -53,8 +79,11 @@ export type LeadListItem = {
   lastName: string;
   countryCode: string | null;
   totalBalance: string;
+  salesStatus: SalesStatus;
   retentionStatus: RetentionStatus;
-  assignedAgent: AgentOption | null;
+  activeTeam: LeadActiveTeam;
+  salesAgent: AgentOption | null;
+  retentionAgent: AgentOption | null;
   createdAt: Date;
   firstDeposit: { amount: string; at: Date } | null;
   lastDeposit: { amount: string; at: Date } | null;
@@ -66,7 +95,8 @@ export type LeadPageResult = {
   items: LeadListItem[];
   total: number;
   page: number;
-  agents: AgentOption[];
+  salesAgents: AgentOption[];
+  retentionAgents: AgentOption[];
   countryOptions: CountryFilterOption[];
 };
 
@@ -80,9 +110,10 @@ export type DepositItem = {
 export type NoteItem = {
   id: string;
   body: string;
+  kind: NoteKind;
   isPinned: boolean;
   createdAt: Date;
-  createdBy: AgentOption & { role: Role };
+  createdBy: AgentOption & { role: Role } | null;
 };
 
 export type LeadDetail = {
@@ -102,8 +133,11 @@ export type LeadDetail = {
   additionalInfo: string | null;
   affiliate: string | null;
   accountStatus: AccountStatus;
+  salesStatus: SalesStatus;
   retentionStatus: RetentionStatus;
-  assignedAgent: AgentOption | null;
+  activeTeam: LeadActiveTeam;
+  salesAgent: AgentOption | null;
+  retentionAgent: AgentOption | null;
   totalBalance: string;
   createdAt: Date;
   updatedAt: Date;
@@ -120,11 +154,12 @@ export type UserListItem = {
   email: string;
   role: Role;
   active: boolean;
-  assignedLeadCount: number;
+  assignedSalesLeadCount: number;
+  assignedRetentionLeadCount: number;
   createdAt: Date;
 };
 
-export type AuthenticatedLeadUser = { id: string; role: "ADMIN" | "RETENTION_AGENT" };
+export type AuthenticatedLeadUser = { id: string; role: Role };
 export type ActionState = { ok: boolean; message: string; errors?: Record<string, string[]> };
 
 export const emptyActionState: ActionState = { ok: false, message: "" };

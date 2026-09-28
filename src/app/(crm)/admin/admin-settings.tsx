@@ -36,7 +36,7 @@ export function AdminSettings({ users, currentUserId }: { users: UserListItem[];
           <label className="filter-field"><span>FULL NAME</span><input name="fullName" defaultValue={editing?.fullName ?? ""} required /></label>
           <label className="filter-field"><span>EMAIL</span><input name="email" type="email" defaultValue={editing?.email ?? ""} readOnly={Boolean(editing)} required /></label>
           <label className="filter-field"><span>PASSWORD</span><input name="password" type="password" placeholder={editing ? "Leave blank to keep current password" : "Enter password"} required={!editing} /></label>
-          <label className="filter-field"><span>ROLE</span><select name="role" defaultValue={editing?.role ?? "RETENTION_AGENT"}><option value="ADMIN">Admin</option><option value="RETENTION_AGENT">Retention Agent</option></select></label>
+          <label className="filter-field"><span>ROLE</span><select name="role" defaultValue={editing?.role ?? "RETENTION_AGENT"}><option value="ADMIN">Admin</option><option value="SALES_AGENT">Sales Agent</option><option value="RETENTION_AGENT">Retention Agent</option></select></label>
           <div className="form-row-actions"><ActionMessage state={userState} />{editing && <button type="button" onClick={() => setEditing(null)}>Cancel edit</button>}<SubmitButton>{editing ? "Save changes" : "Create user"}</SubmitButton></div>
         </form>
       </section>
@@ -53,10 +53,10 @@ export function AdminSettings({ users, currentUserId }: { users: UserListItem[];
               <td>{user.fullName}{!user.active && <small className="muted">Inactive</small>}</td>
               <td>{user.email}</td>
               <td><span className={`role-badge role-${user.role.toLocaleLowerCase().replaceAll("_", "-")}`}>{ROLE_LABELS[user.role]}</span></td>
-              <td>{user.assignedLeadCount}</td>
+              <td><span title="Sales / Retention">S {user.assignedSalesLeadCount} / R {user.assignedRetentionLeadCount}</span></td>
               <td className="actions-cell">
                 <button type="button" onClick={() => setEditing(user)}><Edit3 size={13} />Edit</button>
-                {isCurrentUser ? <span className="muted">Current user</span> : <form action={deleteAction} onSubmit={(event) => { if (!confirm(`${user.assignedLeadCount} lead(s) will become unassigned. Delete ${user.fullName}?`)) event.preventDefault(); }}>
+                {isCurrentUser ? <span className="muted">Current user</span> : <form action={deleteAction} onSubmit={(event) => { if (!confirm(`${user.assignedSalesLeadCount + user.assignedRetentionLeadCount} assigned lead reference(s) will become unassigned. Delete ${user.fullName}?`)) event.preventDefault(); }}>
                   <input type="hidden" name="userId" value={user.id} />
                   <button className="danger-link" type="submit"><Trash2 size={13} />Delete</button>
                 </form>}

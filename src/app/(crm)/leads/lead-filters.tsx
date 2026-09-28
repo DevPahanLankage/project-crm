@@ -1,12 +1,12 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { CountryFilter } from "@/app/(crm)/leads/country-filter";
-import { RETENTION_STATUSES, RETENTION_STATUS_LABELS, type AgentOption, type CountryFilterOption, type LeadQuery } from "@/lib/leads/types";
+import { ACTIVE_TEAMS, ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, SALES_STATUSES, SALES_STATUS_LABELS, type AgentOption, type CountryFilterOption, type LeadQuery } from "@/lib/leads/types";
 
 function dateInput(name: string, label: string, value: Date | null) {
   return <label className="filter-field"><span>{label}</span><input type="date" name={name} defaultValue={value?.toISOString().slice(0, 10) ?? ""} /></label>;
 }
 
-export function LeadFilters({ query, agents, countryOptions, isAdmin }: { query: LeadQuery; agents: AgentOption[]; countryOptions: CountryFilterOption[]; isAdmin: boolean }) {
+export function LeadFilters({ query, salesAgents, retentionAgents, countryOptions, isAdmin }: { query: LeadQuery; salesAgents: AgentOption[]; retentionAgents: AgentOption[]; countryOptions: CountryFilterOption[]; isAdmin: boolean }) {
   return (
     <form className="filter-form" action="/leads" method="get">
       <input type="hidden" name="search" value={query.search} />
@@ -19,8 +19,11 @@ export function LeadFilters({ query, agents, countryOptions, isAdmin }: { query:
           <label className="filter-field"><span>LEAD ID</span><input name="leadId" defaultValue={query.leadId} placeholder="Full or partial ID" /></label>
           <label className="filter-field"><span>COUNTRY</span><CountryFilter key={query.country.join(",")} options={countryOptions} selectedCodes={query.country} /></label>
           <label className="filter-field"><span>NAME</span><input name="name" defaultValue={query.name} placeholder="First or last name" /></label>
-          <label className="filter-field"><span>RETENTION STATUS</span><select name="status" defaultValue={query.status ?? ""}><option value="">All statuses</option>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select></label>
-          {isAdmin && <label className="filter-field"><span>ASSIGNED AGENT</span><select name="agent" defaultValue={query.agent}><option value="">All agents</option><option value="unassigned">Unassigned</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label>}
+          <label className="filter-field"><span>SALES STATUS</span><select name="salesStatus" defaultValue={query.salesStatus ?? ""}><option value="">All sales statuses</option>{SALES_STATUSES.map((status) => <option key={status} value={status}>{SALES_STATUS_LABELS[status]}</option>)}</select></label>
+          <label className="filter-field"><span>RETENTION STATUS</span><select name="retentionStatus" defaultValue={query.retentionStatus ?? ""}><option value="">All retention statuses</option>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select></label>
+          <label className="filter-field"><span>ACTIVE TEAM</span><select name="activeTeam" defaultValue={query.activeTeam ?? ""}><option value="">All teams</option>{ACTIVE_TEAMS.map((team) => <option key={team} value={team}>{ACTIVE_TEAM_LABELS[team]}</option>)}</select></label>
+          {isAdmin && <label className="filter-field"><span>SALES AGENT</span><select name="salesAgent" defaultValue={query.salesAgent}><option value="">All sales agents</option><option value="unassigned">Unassigned</option>{salesAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label>}
+          {isAdmin && <label className="filter-field"><span>RETENTION AGENT</span><select name="retentionAgent" defaultValue={query.retentionAgent}><option value="">All retention agents</option><option value="unassigned">Unassigned</option>{retentionAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label>}
         </div>
       </details>
       <details className="filter-section">
@@ -36,4 +39,3 @@ export function LeadFilters({ query, agents, countryOptions, isAdmin }: { query:
     </form>
   );
 }
-
