@@ -566,15 +566,31 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 :root[data-theme="dark"] .status-box { box-shadow: inset 0 1px 0 rgb(255 255 255 / 7%), 0 1px 2px rgb(0 0 0 / 24%); }
 .status-box-large { min-width: 150px; min-height: 50px; padding: 8px 16px; font-size: 16px; }
 .status-new { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+.status-open { border-color: #cbd5e1; background: #f8fafc; color: #475569; }
+.status-sales, .status-contacted, .status-interested { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+.status-payment-pending { border-color: #fed7aa; background: #fff7ed; color: #c2410c; }
+.status-converted { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
 .status-no-answer { border-color: #fecaca; background: #fff1f2; color: #b91c1c; }
 .status-no-interest { border-color: #fde68a; background: #fef9c3; color: #854d0e; }
 .status-potential-low { border-color: #e7b75a; background: #fff4d6; color: #754a0b; }
 .status-active, .status-active-vip, .status-deposited { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+:root[data-theme="dark"] .status-open {
+  border-color: rgb(148 163 184 / 34%); background: rgb(51 65 85 / 22%); color: #cbd5e1;
+}
 :root[data-theme="dark"] .status-new,
+:root[data-theme="dark"] .status-sales,
+:root[data-theme="dark"] .status-contacted,
+:root[data-theme="dark"] .status-interested,
 :root[data-theme="dark"] .status-active,
 :root[data-theme="dark"] .status-active-vip,
 :root[data-theme="dark"] .status-deposited {
   border-color: rgb(96 165 250 / 48%); background: rgb(37 99 235 / 18%); color: #93c5fd;
+}
+:root[data-theme="dark"] .status-payment-pending {
+  border-color: rgb(251 146 60 / 46%); background: rgb(154 52 18 / 20%); color: #fdba74;
+}
+:root[data-theme="dark"] .status-converted {
+  border-color: rgb(74 222 128 / 42%); background: rgb(22 101 52 / 20%); color: #86efac;
 }
 :root[data-theme="dark"] .status-no-answer {
   border-color: rgb(248 113 113 / 46%); background: rgb(127 29 29 / 18%); color: #fca5a5;
@@ -651,18 +667,27 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 .profile-main { display: grid; gap: 10px; min-width: 0; }
 .inline-form { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
 .inline-form select { width: 250px; }
-.status-card { display: grid; align-content: start; gap: 14px; }
+.status-card { display: grid; align-content: start; gap: 8px; }
 .status-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .status-panel-heading h2 { margin-bottom: 0; }
-.status-group { display: grid; gap: 7px; }
-.status-group > span { color: var(--crm-muted); font-size: 11px; font-weight: 800; letter-spacing: .045em; }
-.status-group > strong { font-weight: 800; overflow-wrap: anywhere; }
-.status-current-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.status-current-line small { color: var(--crm-muted); font-weight: 700; }
+.status-workflow { display: grid; gap: 0; border: 1px solid var(--crm-border); border-radius: 10px; overflow: hidden; background: var(--crm-surface-subtle); }
+.status-group { display: grid; grid-template-columns: minmax(132px, .72fr) minmax(170px, 1fr); gap: 10px 12px; align-items: center; padding: 12px; background: color-mix(in srgb, var(--crm-surface) 78%, transparent); }
+.status-group + .status-group { border-top: 1px solid var(--crm-border); }
+.status-group.status-readonly { background: color-mix(in srgb, var(--crm-surface-subtle) 82%, transparent); }
+.status-row-heading { min-width: 0; display: grid; gap: 7px; align-content: center; }
+.status-row-heading > span:first-child { color: var(--crm-muted); font-size: 11px; font-weight: 850; letter-spacing: .065em; }
+.status-group.status-readonly .status-row-heading,
+.status-group.status-readonly .status-form { opacity: .72; }
+.status-owner { color: var(--crm-muted); font-size: 12px; font-weight: 700; }
 .status-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
-.status-form select { width: 100%; border-color: var(--crm-table-border-strong); box-shadow: var(--crm-inset-shadow); }
+.status-form select { width: 100%; min-width: 0; border-color: var(--crm-table-border-strong); box-shadow: var(--crm-inset-shadow); }
 .status-form select:focus, .status-form select:focus-visible { border-color: #60a5fa; outline: 0; box-shadow: var(--crm-inset-shadow), 0 0 0 2px rgb(59 130 246 / 10%); }
-.status-form button { min-height: 35px; align-self: center; }
+.status-form select:disabled { cursor: default; background: var(--crm-input-disabled); color: var(--crm-muted); }
+.status-form button { min-width: 74px; min-height: 32px; align-self: center; padding-inline: 12px; box-shadow: none; }
+.status-form button:disabled { cursor: default; }
+.status-card .action-success,
+.status-card .action-error { grid-column: 1 / -1; margin: 0; padding: 5px 8px; border-radius: 7px; font-size: 12px; line-height: 1.35; }
+.status-card .action-success { background: rgb(22 163 74 / 8%); border-color: rgb(22 163 74 / 18%); }
 .status-unavailable { padding-top: 12px; border-top: 1px solid var(--crm-border); }
 .ip-panel { display: grid; align-content: start; }
 .latest-note-panel { display: grid; gap: 8px; }
@@ -676,7 +701,28 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 .tab-panel { margin-top: -14px; border-top-left-radius: 0; }
 .lead-profile .profile-form { grid-template-columns: repeat(2, minmax(200px, 1fr)); }
 .info-grid, .payment-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 7px 16px; }
+.personal-overview {
+  border-color: #202126;
+  background: linear-gradient(180deg, #0d0d0d, #080808);
+  color: #f8fafc;
+  box-shadow: 0 14px 32px rgb(0 0 0 / 18%), inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+.personal-overview h2 { color: #ffffff; }
 .personal-overview .info-grid { grid-template-columns: 1fr; gap: 0; }
+.personal-overview .info-row {
+  grid-template-columns: minmax(116px, .58fr) minmax(0, 1fr);
+  min-height: 34px;
+  gap: 14px;
+  border-bottom-color: rgb(255 255 255 / 8%);
+}
+.personal-overview .info-row:last-child { border-bottom: 0; }
+.personal-overview .info-row span { color: #8b949e; font-size: 12px; font-weight: 700; }
+.personal-overview .info-row strong { color: #f8fafc; font-weight: 750; min-width: 0; }
+.personal-overview .muted { color: #717b87; }
+.personal-overview .country-code { color: #f8fafc; }
+.personal-overview .country-flag { box-shadow: 0 0 0 1px rgb(255 255 255 / 18%); }
+.personal-overview .copyable-value:hover,
+.personal-overview .copyable-value:focus-visible { color: #93c5fd; }
 .info-row { display: grid; grid-template-columns: 132px 1fr; gap: 8px; min-height: 29px; align-items: center; border-bottom: 1px solid var(--crm-info-border); }
 .info-row span { color: var(--crm-muted); }
 .info-row strong { font-weight: 650; overflow-wrap: anywhere; }
@@ -731,8 +777,10 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
   .profile-header { flex-direction: column; }
   .profile-header-actions { width: 100%; justify-content: flex-start; }
   .summary-grid, .lead-profile .profile-form, .info-grid, .payment-summary { grid-template-columns: 1fr; }
+  .status-group { grid-template-columns: 1fr; gap: 9px; }
   .status-form { grid-template-columns: 1fr; }
   .status-form button { justify-self: start; }
+  .personal-overview .info-row { grid-template-columns: minmax(98px, .55fr) minmax(0, 1fr); gap: 10px; }
   .inline-form select { width: min(100%, 250px); }
 }
 .skeleton-line, .skeleton-button, .skeleton-card, .skeleton-section {

@@ -176,44 +176,46 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
 
         <section className="profile-section status-card" id="status-card">
           <h2>Acquisition status</h2>
-          <div className="status-group">
-            <span>ACTIVE TEAM</span>
-            <div className="status-current-line">
-              <span className="status-box">{ACTIVE_TEAM_LABELS[lead.activeTeam]}</span>
+          <div className="status-workflow">
+            <div className={!activeTeamEditable ? "status-group status-readonly" : "status-group"}>
+              <div className="status-row-heading">
+                <span>ACTIVE TEAM</span>
+                <span className={`status-box ${statusClass(lead.activeTeam)}`}>{ACTIVE_TEAM_LABELS[lead.activeTeam]}</span>
+              </div>
+              <form action={activeTeamAction} className="status-form">
+                <input type="hidden" name="leadId" value={lead.id} />
+                <select name="activeTeam" defaultValue={lead.activeTeam} disabled={!activeTeamEditable}>{ACTIVE_TEAMS.map((team) => <option key={team} value={team}>{ACTIVE_TEAM_LABELS[team]}</option>)}</select>
+                <SubmitButton disabled={!activeTeamEditable}>Update</SubmitButton>
+              </form>
+              <ActionPanel state={activeTeamState} />
             </div>
-            <form action={activeTeamAction} className="status-form">
-              <input type="hidden" name="leadId" value={lead.id} />
-              <select name="activeTeam" defaultValue={lead.activeTeam} disabled={!activeTeamEditable}>{ACTIVE_TEAMS.map((team) => <option key={team} value={team}>{ACTIVE_TEAM_LABELS[team]}</option>)}</select>
-              <SubmitButton disabled={!activeTeamEditable}>Update active team</SubmitButton>
-            </form>
-          </div>
-          <div className="status-group">
-            <span>SALES</span>
-            <div className="status-current-line">
-              <span className={`status-box ${statusClass(lead.salesStatus)}`}>{SALES_STATUS_LABELS[lead.salesStatus]}</span>
-              {lead.salesAgent && <small>{lead.salesAgent.fullName}</small>}
+            <div className={!salesStatusEditable ? "status-group status-readonly" : "status-group"}>
+              <div className="status-row-heading">
+                <span>SALES</span>
+                <span className={`status-box ${statusClass(lead.salesStatus)}`}>{SALES_STATUS_LABELS[lead.salesStatus]}</span>
+                {lead.salesAgent && <small className="status-owner">{lead.salesAgent.fullName}</small>}
+              </div>
+              <form action={salesStatusAction} className="status-form">
+                <input type="hidden" name="leadId" value={lead.id} />
+                <select name="salesStatus" defaultValue={lead.salesStatus} disabled={!salesStatusEditable}>{SALES_STATUSES.map((status) => <option key={status} value={status}>{SALES_STATUS_LABELS[status]}</option>)}</select>
+                <SubmitButton disabled={!salesStatusEditable}>Update</SubmitButton>
+              </form>
+              <ActionPanel state={salesStatusState} />
             </div>
-            <form action={salesStatusAction} className="status-form">
-              <input type="hidden" name="leadId" value={lead.id} />
-              <select name="salesStatus" defaultValue={lead.salesStatus} disabled={!salesStatusEditable}>{SALES_STATUSES.map((status) => <option key={status} value={status}>{SALES_STATUS_LABELS[status]}</option>)}</select>
-              <SubmitButton disabled={!salesStatusEditable}>Update sales</SubmitButton>
-            </form>
-          </div>
-          <div className="status-group">
-            <span>RETENTION</span>
-            <div className="status-current-line">
-              <span className={`status-box ${statusClass(lead.retentionStatus)}`}>{RETENTION_STATUS_LABELS[lead.retentionStatus]}</span>
-              {lead.retentionAgent && <small>{lead.retentionAgent.fullName}</small>}
+            <div className={!retentionStatusEditable ? "status-group status-readonly" : "status-group"}>
+              <div className="status-row-heading">
+                <span>RETENTION</span>
+                <span className={`status-box ${statusClass(lead.retentionStatus)}`}>{RETENTION_STATUS_LABELS[lead.retentionStatus]}</span>
+                {lead.retentionAgent && <small className="status-owner">{lead.retentionAgent.fullName}</small>}
+              </div>
+              <form action={retentionStatusAction} className="status-form">
+                <input type="hidden" name="leadId" value={lead.id} />
+                <select name="retentionStatus" defaultValue={lead.retentionStatus} disabled={!retentionStatusEditable}>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select>
+                <SubmitButton disabled={!retentionStatusEditable}>Update</SubmitButton>
+              </form>
+              <ActionPanel state={retentionStatusState} />
             </div>
-            <form action={retentionStatusAction} className="status-form">
-              <input type="hidden" name="leadId" value={lead.id} />
-              <select name="retentionStatus" defaultValue={lead.retentionStatus} disabled={!retentionStatusEditable}>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select>
-              <SubmitButton disabled={!retentionStatusEditable}>Update retention</SubmitButton>
-            </form>
           </div>
-          <ActionPanel state={activeTeamState} />
-          <ActionPanel state={salesStatusState} />
-          <ActionPanel state={retentionStatusState} />
         </section>
 
         <section className="profile-section ip-panel"><h2>Last 10 IPs</h2><p className="empty-inline">-</p></section>
