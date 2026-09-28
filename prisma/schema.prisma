@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  RETENTION_AGENT
+}
+
+enum AccountStatus {
+  NOT_VERIFIED
+}
+
+enum RetentionStatus {
+  NEW
+  NO_ANSWER
+  NO_INTEREST
+  POTENTIAL_LOW
+  ACTIVE
+  ACTIVE_VIP
+  DEPOSITED
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  fullName        String
+  passwordHash    String
+  role            Role
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sessions        Session[]
+  assignedLeads   Lead[]    @relation("AssignedAgent")
+  createdDeposits Deposit[] @relation("DepositCreator")
+  createdNotes    Note[]    @relation("NoteCreator")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Lead {
+  id               String          @id @default(cuid())
+  firstName        String
+  lastName         String
+  email            String
+  alternateEmail   String?
+  phone            String
+  alternatePhone   String?
+  countryCode      String?
+  prefix           String?
+  dateOfBirth      DateTime?
+  gender           String?
+  language         String?
+  timeZone         String?
+  additionalInfo   String?
+  affiliate        String?
+  accountStatus    AccountStatus   @default(NOT_VERIFIED)
+  retentionStatus  RetentionStatus @default(NEW)
+  assignedAgentId  String?
+  assignedAgent    User?           @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  totalBalance     Decimal         @default(0) @db.Decimal(18, 2)
+  firstDepositAt   DateTime?
+  lastDepositAt    DateTime?
+  firstNoteAt      DateTime?
+  lastNoteAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  deposits         Deposit[]
+  notes            Note[]
+
+  @@index([firstName])
+  @@index([lastName])
+  @@index([email])
+  @@index([phone])
+  @@index([countryCode])
+  @@index([retentionStatus])
+  @@index([assignedAgentId])
+  @@index([createdAt])
+  @@index([firstDepositAt])
+  @@index([lastDepositAt])
+  @@index([firstNoteAt])
+  @@index([lastNoteAt])
+  @@index([assignedAgentId, createdAt])
+}
+
+model Deposit {
+  id              String   @id @default(cuid())
+  leadId          String
+  amount          Decimal  @db.Decimal(18, 2)
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation("DepositCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([leadId, createdAt])
+  @@index([createdByUserId])
+}
+
+model Note {
+  id              String   @id @default(cuid())
+  leadId          String
+  body            String
+  isPinned        Boolean  @default(false)
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation("NoteCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([leadId, createdAt])
+  @@index([leadId, isPinned])
+  @@index([createdByUserId])
+}
