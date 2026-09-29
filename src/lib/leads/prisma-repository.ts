@@ -7,10 +7,8 @@ import { startPerf, timed } from "@/lib/perf";
 
 function leadAccessSql(user: AuthenticatedLeadUser) {
   if (user.role === "ADMIN") return Prisma.empty;
-  if (user.role === "SALES_AGENT") {
-    return Prisma.sql`(l."activeTeam" = 'OPEN'::"LeadActiveTeam" OR l."salesAgentId" = ${user.id} OR (l."activeTeam" = 'SALES'::"LeadActiveTeam" AND l."salesAgentId" IS NULL))`;
-  }
-  return Prisma.sql`(l."activeTeam" IN ('OPEN'::"LeadActiveTeam", 'SALES'::"LeadActiveTeam") OR l."retentionAgentId" = ${user.id})`;
+  if (user.role === "SALES_AGENT") return Prisma.sql`l."salesAgentId" = ${user.id}`;
+  return Prisma.sql`l."retentionAgentId" = ${user.id}`;
 }
 
 function like(term: string) {

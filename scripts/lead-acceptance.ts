@@ -15,6 +15,14 @@ async function result(params: Record<string, string> = {}, user: AuthenticatedLe
   return listMockLeads(user, parseLeadQuery(params));
 }
 
+function countryCountMap(leads: Array<{ countryCode: string | null }>) {
+  const counts = new Map<string, number>();
+  leads.forEach((lead) => {
+    if (lead.countryCode) counts.set(lead.countryCode, (counts.get(lead.countryCode) ?? 0) + 1);
+  });
+  return counts;
+}
+
 async function main() {
 const allAdmin = await result();
 assert.equal(allAdmin.total, 112);
@@ -46,35 +54,62 @@ assert.equal((await result({ page: "2" })).items.length, 25);
 
 const agentAll = await result({ pageSize: "all" }, agent);
 assert.ok(agentAll.total > 0 && agentAll.total <= allAdmin.total);
-assert.ok(agentAll.items.every((lead) => lead.activeTeam === "OPEN" || lead.activeTeam === "SALES" || lead.retentionAgent?.id === agent.id));
-assert.ok((await result({ retentionAgent: "unassigned", pageSize: "all" }, agent)).items.every((lead) => lead.activeTeam === "OPEN" || lead.activeTeam === "SALES" || lead.retentionAgent?.id === agent.id));
-assert.ok((await result({ search: "Avery", pageSize: "all" }, agent)).items.every((lead) => lead.activeTeam === "OPEN" || lead.activeTeam === "SALES" || lead.retentionAgent?.id === agent.id));
+assert.ok(agentAll.items.every((lead) => lead.retentionAgent?.id === agent.id));
+assert.equal(agentAll.total, agentAll.items.length);
+assert.equal(agentAll.items.some((lead) => !lead.retentionAgent), false);
+assert.equal(agentAll.items.some((lead) => lead.retentionAgent?.id === otherAgent.id), false);
 assert.equal((await result({ search: "definitely-no-fictional-lead" }, agent)).total, 0);
+const otherRetentionLead = (await result({ retentionAgent: otherAgent.id, pageSize: "all" })).items[0];
+assert.ok(otherRetentionLead);
+assert.equal((await result({ search: otherRetentionLead.id, pageSize: "all" }, agent)).total, 0);
+assert.equal((await result({ retentionStatus: otherRetentionLead.retentionStatus, pageSize: "all" }, agent)).items.every((lead) => lead.retentionAgent?.id === agent.id), true);
+const agentCountryCounts = countryCountMap(agentAll.items);
+assert.deepEqual(new Map(agentAll.countryOptions.map((option) => [option.code, option.count])), agentCountryCounts);
 
 const salesAll = await result({ pageSize: "all" }, sales);
 assert.ok(salesAll.total > 0 && salesAll.total <= allAdmin.total);
-assert.ok(salesAll.items.every((lead) => lead.activeTeam === "OPEN" || lead.salesAgent?.id === sales.id || (lead.activeTeam === "SALES" && !lead.salesAgent)));
+assert.ok(salesAll.items.every((lead) => lead.salesAgent?.id === sales.id));
+assert.equal(salesAll.total, salesAll.items.length);
+assert.equal(salesAll.items.some((lead) => !lead.salesAgent), false);
+assert.equal(salesAll.items.some((lead) => lead.salesAgent?.id === otherSales.id), false);
+const otherSalesLead = (await result({ salesAgent: otherSales.id, pageSize: "all" })).items[0];
+assert.ok(otherSalesLead);
+assert.equal((await result({ search: otherSalesLead.id, pageSize: "all" }, sales)).total, 0);
+const unassignedLead = (await result({ salesAgent: "unassigned", pageSize: "all" })).items.find((lead) => !lead.salesAgent && !lead.retentionAgent);
+assert.ok(unassignedLead);
+assert.equal((await result({ search: unassignedLead.id, pageSize: "all" }, sales)).total, 0);
+assert.equal((await result({ search: unassignedLead.id, pageSize: "all" }, agent)).total, 0);
+const salesCountryCounts = countryCountMap(salesAll.items);
+assert.deepEqual(new Map(salesAll.countryOptions.map((option) => [option.code, option.count])), salesCountryCounts);
 
 const openUnassigned = { activeTeam: "OPEN" as const, salesAgentId: null, retentionAgentId: null };
-assert.ok(canViewLead(sales, openUnassigned));
-assert.ok(canViewLead(agent, openUnassigned));
-assert.ok(canEditSalesStatus(sales, openUnassigned));
-assert.ok(canEditRetentionStatus(agent, openUnassigned));
-assert.ok(canAddNote(sales, openUnassigned));
-assert.ok(canAddNote(agent, openUnassigned));
-assert.ok(canAddDeposit(sales, openUnassigned));
+assert.ok(canViewLead(admin, openUnassigned));
+assert.equal(canViewLead(sales, openUnassigned), false);
+assert.equal(canViewLead(agent, openUnassigned), false);
+assert.equal(canEditSalesStatus(sales, openUnassigned), false);
+assert.equal(canEditRetentionStatus(agent, openUnassigned), false);
+assert.equal(canAddNote(sales, openUnassigned), false);
+assert.equal(canAddNote(agent, openUnassigned), false);
+assert.equal(canAddDeposit(sales, openUnassigned), false);
 
 const openAssignedSales = { activeTeam: "OPEN" as const, salesAgentId: sales.id, retentionAgentId: null };
+assert.ok(canViewLead(sales, openAssignedSales));
+assert.equal(canViewLead(agent, openAssignedSales), false);
 assert.ok(canEditSalesStatus(sales, openAssignedSales));
 assert.equal(canEditSalesStatus(otherSales, openAssignedSales), false);
 assert.ok(canAddDeposit(sales, openAssignedSales));
 assert.equal(canAddDeposit(otherSales, openAssignedSales), false);
 
 const openAssignedRetention = { activeTeam: "OPEN" as const, salesAgentId: null, retentionAgentId: agent.id };
+assert.ok(canViewLead(agent, openAssignedRetention));
+assert.equal(canViewLead(sales, openAssignedRetention), false);
 assert.ok(canEditRetentionStatus(agent, openAssignedRetention));
 assert.equal(canEditRetentionStatus(otherAgent, openAssignedRetention), false);
 
 const salesOwned = { activeTeam: "SALES" as const, salesAgentId: sales.id, retentionAgentId: null };
+assert.ok(canViewLead(sales, salesOwned));
+assert.equal(canViewLead(otherSales, salesOwned), false);
+assert.equal(canViewLead(agent, salesOwned), false);
 assert.ok(canEditSalesStatus(sales, salesOwned));
 assert.equal(canEditSalesStatus(otherSales, salesOwned), false);
 assert.ok(canAddDeposit(sales, salesOwned));
@@ -82,10 +117,18 @@ assert.equal(canAddDeposit(otherSales, salesOwned), false);
 assert.equal(canAddNote(otherSales, salesOwned), false);
 assert.equal(canEditSalesStatus(agent, salesOwned), false);
 assert.equal(canAddDeposit(agent, salesOwned), false);
-assert.ok(canEditRetentionStatus(agent, salesOwned));
+assert.equal(canEditRetentionStatus(agent, salesOwned), false);
+
+const salesAndRetentionAssignedDuringSales = { activeTeam: "SALES" as const, salesAgentId: sales.id, retentionAgentId: agent.id };
+assert.ok(canViewLead(sales, salesAndRetentionAssignedDuringSales));
+assert.ok(canViewLead(agent, salesAndRetentionAssignedDuringSales));
+assert.ok(canEditRetentionStatus(agent, salesAndRetentionAssignedDuringSales));
 
 const retentionOwned = { activeTeam: "RETENTION" as const, salesAgentId: sales.id, retentionAgentId: agent.id };
 assert.ok(canViewLead(sales, retentionOwned));
+assert.ok(canViewLead(agent, retentionOwned));
+assert.equal(canViewLead(otherSales, retentionOwned), false);
+assert.equal(canViewLead(otherAgent, retentionOwned), false);
 assert.equal(canEditSalesStatus(sales, retentionOwned), false);
 assert.equal(canAddDeposit(sales, retentionOwned), false);
 assert.equal(canAddNote(sales, retentionOwned), false);

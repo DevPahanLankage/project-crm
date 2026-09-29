@@ -28,7 +28,7 @@ function mockAgent(index: number) {
 
 function mockSalesAgent(index: number) {
   if (index % 6 !== 0) return null;
-  return MOCK_SALES_AGENTS[index % MOCK_SALES_AGENTS.length];
+  return MOCK_SALES_AGENTS[Math.floor(index / 6) % MOCK_SALES_AGENTS.length];
 }
 
 function createMockLeads(): MockLead[] {
@@ -132,7 +132,7 @@ function applyNonCountryFilters(rows: MockLead[], user: AuthenticatedLeadUser, q
 
 export async function listMockLeads(user: AuthenticatedLeadUser, query: LeadQuery): Promise<LeadPageResult> {
   // Authorization scope is deliberately applied before any browser-controlled filters.
-  let rows = user.role === "ADMIN" ? MOCK_LEADS : user.role === "SALES_AGENT" ? MOCK_LEADS.filter((lead) => lead.activeTeam === "OPEN" || lead.salesAgent?.id === user.id || (lead.activeTeam === "SALES" && !lead.salesAgent)) : MOCK_LEADS.filter((lead) => lead.activeTeam === "OPEN" || lead.activeTeam === "SALES" || lead.retentionAgent?.id === user.id);
+  let rows = user.role === "ADMIN" ? MOCK_LEADS : user.role === "SALES_AGENT" ? MOCK_LEADS.filter((lead) => lead.salesAgent?.id === user.id) : MOCK_LEADS.filter((lead) => lead.retentionAgent?.id === user.id);
   rows = applyNonCountryFilters(rows, user, query);
   const options = countryOptions(rows);
 

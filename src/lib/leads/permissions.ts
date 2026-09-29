@@ -13,27 +13,23 @@ export function isAdmin(user: AuthenticatedLeadUser) {
 
 export function canViewLead(user: AuthenticatedLeadUser, lead: LeadAccessShape) {
   if (isAdmin(user)) return true;
-  if (user.role === "SALES_AGENT") {
-    return lead.activeTeam === "OPEN" || lead.salesAgentId === user.id || (lead.activeTeam === "SALES" && !lead.salesAgentId);
-  }
-  if (user.role === "RETENTION_AGENT") {
-    return lead.activeTeam === "OPEN" || lead.activeTeam === "SALES" || lead.retentionAgentId === user.id;
-  }
+  if (user.role === "SALES_AGENT") return lead.salesAgentId === user.id;
+  if (user.role === "RETENTION_AGENT") return lead.retentionAgentId === user.id;
   return false;
 }
 
 export function canEditSalesStatus(user: AuthenticatedLeadUser, lead: LeadAccessShape) {
   if (isAdmin(user)) return true;
   if (user.role !== "SALES_AGENT") return false;
+  if (!canViewLead(user, lead)) return false;
   if (lead.activeTeam === "RETENTION") return false;
-  return !lead.salesAgentId || lead.salesAgentId === user.id;
+  return true;
 }
 
 export function canEditRetentionStatus(user: AuthenticatedLeadUser, lead: LeadAccessShape) {
   if (isAdmin(user)) return true;
   if (user.role !== "RETENTION_AGENT") return false;
-  if (lead.retentionAgentId && lead.retentionAgentId !== user.id) return false;
-  return true;
+  return canViewLead(user, lead);
 }
 
 export function canAddNote(user: AuthenticatedLeadUser, lead: LeadAccessShape) {
@@ -50,8 +46,9 @@ export function canToggleNotePin(user: AuthenticatedLeadUser, lead: LeadAccessSh
 export function canAddDeposit(user: AuthenticatedLeadUser, lead: LeadAccessShape) {
   if (isAdmin(user)) return true;
   if (user.role !== "SALES_AGENT") return false;
+  if (!canViewLead(user, lead)) return false;
   if (lead.activeTeam !== "OPEN" && lead.activeTeam !== "SALES") return false;
-  return !lead.salesAgentId || lead.salesAgentId === user.id;
+  return true;
 }
 
 export function canEditProfile(user: AuthenticatedLeadUser) {
