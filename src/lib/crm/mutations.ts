@@ -5,9 +5,10 @@ import { Prisma, type LeadActiveTeam, RetentionStatus, SalesStatus } from "@pris
 import { z } from "zod";
 import { read, utils } from "xlsx";
 import { getCountry, normalizeCountryCode } from "@/lib/countries";
+import { calculateDepositSummary, depositBelongsToLead, formatUsdAmount } from "@/lib/crm/deposit-summary";
 import { db } from "@/lib/db";
 import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser } from "@/lib/leads/types";
-import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
+import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
 
 const ok = (message: string): ActionState => ({ ok: true, message });
 const fail = (message: string, errors?: Record<string, string[]>): ActionState => ({ ok: false, message, errors });
@@ -45,6 +46,7 @@ const salesAssignmentSchema = z.object({ leadId: z.string().min(1), salesAgentId
 const retentionAssignmentSchema = z.object({ leadId: z.string().min(1), retentionAgentId: z.string().optional() });
 const noteSchema = z.object({ leadId: z.string().min(1), body: z.string().trim().min(1).max(5000), isPinned: z.string().optional() });
 const depositSchema = z.object({ leadId: z.string().min(1), amount: z.string().trim().min(1) });
+const deleteDepositSchema = z.object({ leadId: z.string().min(1), depositId: z.string().min(1) });
 
 function requireAdminUser(user: AuthenticatedLeadUser) {
   if (user.role !== "ADMIN") throw new Error("Forbidden");
@@ -266,6 +268,57 @@ export async function addDeposit(user: AuthenticatedLeadUser, formData: FormData
     });
   });
   return ok("Deposit added.");
+}
+
+export async function deleteDeposit(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {
+  if (!canDeleteDeposit(user)) return fail("Only Admins can delete deposits.");
+  const parsed = deleteDepositSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return fail("Deposit details need attention.", parsed.error.flatten().fieldErrors);
+  const now = new Date();
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const lead = await tx.lead.findUnique({
+        where: { id: parsed.data.leadId },
+        select: { id: true, firstNoteAt: true },
+      });
+      const deposit = await tx.deposit.findUnique({
+        where: { id: parsed.data.depositId },
+        select: { id: true, leadId: true, amount: true },
+      });
+      if (!lead || !depositBelongsToLead(deposit, parsed.data.leadId)) return fail("Deposit not found for this lead.");
+
+      await tx.deposit.delete({ where: { id: deposit.id } });
+      const remainingDeposits = await tx.deposit.findMany({
+        where: { leadId: lead.id },
+        select: { amount: true, createdAt: true },
+      });
+      const summary = calculateDepositSummary(remainingDeposits);
+      const actor = await tx.user.findUnique({ where: { id: user.id }, select: { fullName: true } });
+      await tx.note.create({
+        data: {
+          leadId: lead.id,
+          body: `Deposit of ${formatUsdAmount(deposit.amount)} deleted by ${actor?.fullName ?? "Administrator"}.`,
+          kind: "SYSTEM",
+          createdAt: now,
+        },
+      });
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: {
+          totalBalance: summary.totalBalance,
+          firstDepositAt: summary.firstDepositAt,
+          lastDepositAt: summary.lastDepositAt,
+          firstNoteAt: lead.firstNoteAt ?? now,
+          lastNoteAt: now,
+        },
+      });
+      return ok("Deposit deleted. Lead balance recalculated.");
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return fail("Deposit was already deleted. Refresh and try again.");
+    throw error;
+  }
 }
 
 export async function addNote(user: AuthenticatedLeadUser, formData: FormData): Promise<ActionState> {

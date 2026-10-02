@@ -639,6 +639,8 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 .users-table td, .history-table td { padding: 8px 9px; border-bottom: 1px solid var(--crm-border); background: var(--crm-row-base); }
 .users-table tbody tr:nth-child(even) td, .history-table tbody tr:nth-child(even) td { background: var(--crm-row-even); }
 .users-table tbody tr:hover td, .history-table tbody tr:hover td { background: var(--crm-row-hover); }
+.history-action-cell { width: 1%; white-space: nowrap; }
+.deposit-delete-action { min-height: 28px; border-radius: 7px; padding: 0 9px; cursor: pointer; font-weight: 800; }
 .actions-cell { display: flex; align-items: center; gap: 6px; }
 .role-admin { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
 .role-retention-agent { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }

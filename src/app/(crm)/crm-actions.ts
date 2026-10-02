@@ -10,6 +10,7 @@ import {
   bulkDeleteLeads,
   bulkUnassignLeads,
   createOrUpdateUser,
+  deleteDeposit,
   deleteLead,
   deletePinnedNote,
   deleteUser,
@@ -108,6 +109,13 @@ export async function updateLeadProfileAction(_state: ActionState, formData: For
 export async function addDepositAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireAuthenticatedUser();
   const result = await addDeposit(user, formData);
+  revalidateLead(String(formData.get("leadId") ?? ""));
+  return result;
+}
+
+export async function deleteDepositAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await deleteDeposit(user, formData);
   revalidateLead(String(formData.get("leadId") ?? ""));
   return result;
 }

@@ -2,7 +2,7 @@
 
 import { BadgeDollarSign, FileText, MessageSquarePlus, NotebookText, ShieldAlert, Trash2, UserRoundCog } from "lucide-react";
 import { useActionState, useState } from "react";
-import { addDepositAction, addNoteAction, deleteLeadAction, deletePinnedNoteAction, toggleNotePinAction, updateActiveTeamAction, updateLeadProfileAction, updateRetentionAssignmentAction, updateRetentionStatusAction, updateSalesAssignmentAction, updateSalesStatusAction } from "@/app/(crm)/crm-actions";
+import { addDepositAction, addNoteAction, deleteDepositAction, deleteLeadAction, deletePinnedNoteAction, toggleNotePinAction, updateActiveTeamAction, updateLeadProfileAction, updateRetentionAssignmentAction, updateRetentionStatusAction, updateSalesAssignmentAction, updateSalesStatusAction } from "@/app/(crm)/crm-actions";
 import { ActionMessage } from "@/components/action-state";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountryCode } from "@/components/country-code";
@@ -101,6 +101,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
   const [retentionAssignmentState, retentionAssignmentAction] = useActionState(updateRetentionAssignmentAction, emptyActionState);
   const [profileState, profileAction] = useActionState(updateLeadProfileAction, emptyActionState);
   const [depositState, depositAction] = useActionState(addDepositAction, emptyActionState);
+  const [deleteDepositState, deleteDepositFormAction] = useActionState(deleteDepositAction, emptyActionState);
   const [noteState, setNoteState] = useState(emptyActionState);
 
   const accessLead = { activeTeam: lead.activeTeam, salesAgentId: lead.salesAgent?.id ?? null, retentionAgentId: lead.retentionAgent?.id ?? null };
@@ -283,7 +284,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
           <SubmitButton disabled={!depositEditable}>Add deposit</SubmitButton>
           <ActionPanel state={depositState} />
         </form>
-        {lead.deposits.length ? <table className="history-table"><thead><tr><th>Amount</th><th>Date/time</th><th>Added by</th></tr></thead><tbody>{lead.deposits.map((deposit) => <tr key={deposit.id}><td>{money(deposit.amount)}</td><td>{exactDateTime.format(deposit.createdAt)}</td><td>{deposit.createdBy.fullName}</td></tr>)}</tbody></table> : <p className="empty-inline">No deposits.</p>}
+        {lead.deposits.length ? <><table className="history-table"><thead><tr><th>Amount</th><th>Date/time</th><th>Added by</th>{isAdmin && <th>Action</th>}</tr></thead><tbody>{lead.deposits.map((deposit) => <tr key={deposit.id}><td>{money(deposit.amount)}</td><td>{exactDateTime.format(deposit.createdAt)}</td><td>{deposit.createdBy.fullName}</td>{isAdmin && <td className="history-action-cell"><form action={deleteDepositFormAction} onSubmit={(event) => { if (!confirm("Delete this deposit? This will recalculate the lead balance.")) event.preventDefault(); }}><input type="hidden" name="leadId" value={lead.id} /><input type="hidden" name="depositId" value={deposit.id} /><button className="danger-link deposit-delete-action" type="submit">Delete</button></form></td>}</tr>)}</tbody></table><ActionPanel state={deleteDepositState} /></> : <p className="empty-inline">No deposits.</p>}
       </section>}
 
       {tab === "notes" && <section className="profile-section tab-panel">

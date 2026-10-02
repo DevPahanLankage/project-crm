@@ -51,6 +51,10 @@ export function canAddDeposit(user: AuthenticatedLeadUser, lead: LeadAccessShape
   return true;
 }
 
+export function canDeleteDeposit(user: AuthenticatedLeadUser) {
+  return isAdmin(user);
+}
+
 export function canEditProfile(user: AuthenticatedLeadUser) {
   return isAdmin(user);
 }
