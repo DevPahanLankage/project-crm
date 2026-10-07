@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { calculateDepositSummary, depositBelongsToLead } from "../src/lib/crm/deposit-summary";
-import { buildLeadImportCreatePlan, validateLeadImportRows } from "../src/lib/crm/import-leads";
+import { DEFAULT_IMPORT_BATCH_SIZE, buildLeadImportCreatePlan, chunkLeadImportRows, rejectExistingLeadDuplicates, validateLeadImportRows } from "../src/lib/crm/import-leads";
 import { listMockLeads } from "../src/lib/leads/mock-repository";
 import { canAddDeposit, canAddNote, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead } from "../src/lib/leads/permissions";
 import { parseLeadQuery } from "../src/lib/leads/query";
@@ -23,6 +23,19 @@ function countryCountMap(leads: Array<{ countryCode: string | null }>) {
     if (lead.countryCode) counts.set(lead.countryCode, (counts.get(lead.countryCode) ?? 0) + 1);
   });
   return counts;
+}
+
+function makeImportRow(index: number, overrides: Record<string, unknown> = {}) {
+  return {
+    "First Name": `Lead${index}`,
+    "Last Name": "Import",
+    "E-mail": `lead${index}@example.com`,
+    Number: `61429${String(index).padStart(6, "0")}`,
+    Country: "AU",
+    Source: "batchsource",
+    USD: "",
+    ...overrides,
+  };
 }
 
 async function main() {
@@ -208,6 +221,67 @@ const duplicateImportValidation = validateLeadImportRows([
 assert.equal(duplicateImportValidation.validRows.length, 1);
 assert.match(duplicateImportValidation.rejected[0], /duplicate email or phone/);
 assert.equal(buildLeadImportCreatePlan(duplicateImportValidation.validRows[0], importedAt, admin.id).deposit?.amount.toFixed(2), "10.00");
+
+const boundaryRows = Array.from({ length: DEFAULT_IMPORT_BATCH_SIZE + 1 }, (_, index) => makeImportRow(index + 1));
+const boundaryValidation = validateLeadImportRows(boundaryRows);
+assert.equal(boundaryValidation.validRows.length, DEFAULT_IMPORT_BATCH_SIZE + 1);
+const boundaryBatches = chunkLeadImportRows(boundaryValidation.validRows);
+assert.equal(boundaryBatches.length, 2);
+assert.equal(boundaryBatches[0].length, DEFAULT_IMPORT_BATCH_SIZE);
+assert.equal(boundaryBatches[1].length, 1);
+
+const fifteenThousandRows = Array.from({ length: 15_000 }, (_, index) => makeImportRow(index + 10_000));
+const fifteenThousandValidation = validateLeadImportRows(fifteenThousandRows);
+assert.equal(fifteenThousandValidation.validRows.length, 15_000);
+assert.equal(chunkLeadImportRows(fifteenThousandValidation.validRows).length, 30);
+
+const acrossBatchDuplicateRows = [
+  ...Array.from({ length: DEFAULT_IMPORT_BATCH_SIZE }, (_, index) => makeImportRow(index + 20_000)),
+  makeImportRow(20_500, { "E-mail": "lead20001@example.com" }),
+];
+const acrossBatchDuplicateValidation = validateLeadImportRows(acrossBatchDuplicateRows);
+assert.equal(acrossBatchDuplicateValidation.validRows.length, DEFAULT_IMPORT_BATCH_SIZE);
+assert.match(acrossBatchDuplicateValidation.rejected[0], /duplicate email or phone in file/);
+
+const acrossBatchInvalidRows = [
+  ...Array.from({ length: DEFAULT_IMPORT_BATCH_SIZE }, (_, index) => makeImportRow(index + 30_000)),
+  makeImportRow(30_500, { Country: "ZZ" }),
+  makeImportRow(30_501, { "E-mail": "not-an-email" }),
+];
+const acrossBatchInvalidValidation = validateLeadImportRows(acrossBatchInvalidRows);
+assert.equal(acrossBatchInvalidValidation.validRows.length, DEFAULT_IMPORT_BATCH_SIZE);
+assert.equal(acrossBatchInvalidValidation.rejected.length, 2);
+assert.match(acrossBatchInvalidValidation.rejected[0], /invalid country code/);
+assert.match(acrossBatchInvalidValidation.rejected[1], /invalid email/);
+
+const databaseDuplicateValidation = validateLeadImportRows([makeImportRow(40_001), makeImportRow(40_002)]);
+const databaseDuplicateResult = rejectExistingLeadDuplicates(databaseDuplicateValidation.validRows, [{ email: "lead40002@example.com", phone: "614290040002" }]);
+assert.equal(databaseDuplicateResult.creatableRows.length, 1);
+assert.equal(databaseDuplicateResult.duplicateRows, 1);
+assert.match(databaseDuplicateResult.rejected[0], /already exists/);
+
+const depositBatchValidation = validateLeadImportRows([
+  makeImportRow(50_001, { USD: "100.00" }),
+  ...Array.from({ length: DEFAULT_IMPORT_BATCH_SIZE }, (_, index) => makeImportRow(index + 50_002, { USD: index % 2 === 0 ? "25.50" : "" })),
+]);
+const depositBatches = chunkLeadImportRows(depositBatchValidation.validRows);
+const plannedDeposits = depositBatches.flatMap((batch) => batch.map((row) => buildLeadImportCreatePlan(row, importedAt, admin.id))).filter((plan) => plan.deposit);
+assert.equal(depositBatches.length, 2);
+assert.equal(plannedDeposits.length, 251);
+
+const rollbackRows = Array.from({ length: 1_200 }, (_, index) => makeImportRow(index + 60_000));
+const rollbackBatches = chunkLeadImportRows(validateLeadImportRows(rollbackRows).validRows);
+const committedRows: number[] = [];
+const failedBatchIndex = 1;
+rollbackBatches.forEach((batch, index) => {
+  const pendingRows = batch.map((row) => row.rowNumber);
+  if (index === failedBatchIndex) return;
+  committedRows.push(...pendingRows);
+});
+assert.equal(rollbackBatches.length, 3);
+assert.equal(committedRows.length, 700);
+assert.equal(committedRows.includes(rollbackBatches[failedBatchIndex][0].rowNumber), false);
+assert.ok(committedRows.includes(rollbackBatches[0][0].rowNumber));
 
 const refreshState = leadListHref({ search: "Avery", retentionStatus: "ACTIVE", sort: "client", direction: "asc", page: "2", pageSize: "50" }, {});
 assert.match(refreshState, /search=Avery/);

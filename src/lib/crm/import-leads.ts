@@ -15,6 +15,13 @@ export type ValidLeadImportRow = {
   initialDepositAmount: Prisma.Decimal | null;
 };
 
+export type ExistingLeadImportIdentity = {
+  email: string;
+  phone: string;
+};
+
+export const DEFAULT_IMPORT_BATCH_SIZE = 500;
+
 const HEADER_ALIASES = {
   firstName: ["First Name"],
   lastName: ["Last Name"],
@@ -109,6 +116,34 @@ export function validateLeadImportRows(rows: ImportRow[]) {
   });
 
   return { headers, missing, validRows, rejected };
+}
+
+export function chunkLeadImportRows<T>(rows: readonly T[], batchSize = DEFAULT_IMPORT_BATCH_SIZE) {
+  if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error("Batch size must be a positive integer.");
+  const batches: T[][] = [];
+  for (let index = 0; index < rows.length; index += batchSize) {
+    batches.push(rows.slice(index, index + batchSize));
+  }
+  return batches;
+}
+
+export function rejectExistingLeadDuplicates(rows: readonly ValidLeadImportRow[], existingLeads: readonly ExistingLeadImportIdentity[]) {
+  const duplicateEmails = new Set(existingLeads.map((lead) => lead.email));
+  const duplicatePhones = new Set(existingLeads.map((lead) => lead.phone));
+  const rejected: string[] = [];
+  const creatableRows: ValidLeadImportRow[] = [];
+  let duplicateRows = 0;
+
+  rows.forEach((row) => {
+    if (duplicateEmails.has(row.email) || duplicatePhones.has(row.phone)) {
+      duplicateRows += 1;
+      rejected.push(`Row ${row.rowNumber}: duplicate email or phone already exists.`);
+      return;
+    }
+    creatableRows.push(row);
+  });
+
+  return { creatableRows, duplicateRows, rejected };
 }
 
 export function buildLeadImportCreatePlan(row: ValidLeadImportRow, importedAt: Date, createdByUserId: string) {

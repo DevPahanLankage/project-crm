@@ -6,7 +6,14 @@ import { z } from "zod";
 import { read, utils } from "xlsx";
 import { getCountry, normalizeCountryCode } from "@/lib/countries";
 import { calculateDepositSummary, depositBelongsToLead, formatUsdAmount } from "@/lib/crm/deposit-summary";
-import { buildLeadImportCreatePlan, validateLeadImportRows } from "@/lib/crm/import-leads";
+import {
+  DEFAULT_IMPORT_BATCH_SIZE,
+  buildLeadImportCreatePlan,
+  chunkLeadImportRows,
+  rejectExistingLeadDuplicates,
+  validateLeadImportRows,
+  type ValidLeadImportRow,
+} from "@/lib/crm/import-leads";
 import { db } from "@/lib/db";
 import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser } from "@/lib/leads/types";
 import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
@@ -78,6 +85,36 @@ function normalizeOptionalCountry(value: string | undefined) {
   if (!code) return null;
   if (!getCountry(code)) throw new Error("Country code must be a known ISO alpha-2 code.");
   return code;
+}
+
+async function findExistingImportLeadIdentities(rows: readonly ValidLeadImportRow[]) {
+  const existingLeads: Array<{ email: string; phone: string }> = [];
+  for (const batch of chunkLeadImportRows(rows, DEFAULT_IMPORT_BATCH_SIZE)) {
+    const leads = await db.lead.findMany({
+      where: { OR: [{ email: { in: batch.map((row) => row.email) } }, { phone: { in: batch.map((row) => row.phone) } }] },
+      select: { email: true, phone: true },
+    });
+    existingLeads.push(...leads);
+  }
+  return existingLeads;
+}
+
+async function createLeadImportBatch(tx: Prisma.TransactionClient, rows: readonly ValidLeadImportRow[], createdByUserId: string) {
+  const importedAt = new Date();
+  const plans = rows.map((row) => ({ row, ...buildLeadImportCreatePlan(row, importedAt, createdByUserId) }));
+  const createdLeads = await tx.lead.createManyAndReturn({
+    data: plans.map((plan) => plan.lead),
+    select: { id: true, email: true },
+  });
+  const leadIdsByEmail = new Map(createdLeads.map((lead) => [lead.email, lead.id]));
+  const depositData = plans.flatMap((plan) => {
+    if (!plan.deposit) return [];
+    const leadId = leadIdsByEmail.get(plan.row.email);
+    if (!leadId) throw new Error("Imported lead lookup failed.");
+    return [{ leadId, ...plan.deposit }];
+  });
+  if (depositData.length) await tx.deposit.createMany({ data: depositData });
+  return { leadCount: createdLeads.length, depositCount: depositData.length };
 }
 
 
@@ -424,48 +461,51 @@ export async function distributeLeads(user: AuthenticatedLeadUser, leadIds: stri
 export async function importLeadsFromExcel(user: AuthenticatedLeadUser, file: File): Promise<ActionState> {
   requireAdminUser(user);
   if (!file.name.match(/\.(xlsx|xls|csv)$/i)) return fail("Choose a .xlsx, .xls, or .csv file.");
+  const importStartedAt = Date.now();
   const buffer = Buffer.from(await file.arrayBuffer());
   const workbook = read(buffer, { type: "buffer", raw: false, cellText: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return fail("Excel file has no readable sheets.");
   const rows = utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
   if (!rows.length) return fail("Excel contains no valid rows.");
+  console.info(`[import] parsed rows: ${rows.length}`);
 
   const { missing, validRows, rejected } = validateLeadImportRows(rows);
   if (missing.length) return fail(`Missing required header(s): ${missing.join(", ")}.`);
 
   if (!validRows.length) return fail(`Import failed. 0 valid rows. ${rejected.slice(0, 5).join(" ")}`);
 
-  const duplicates = await db.lead.findMany({
-    where: { OR: [{ email: { in: validRows.map((row) => row.email) } }, { phone: { in: validRows.map((row) => row.phone) } }] },
-    select: { email: true, phone: true },
-  });
-  const duplicateEmails = new Set(duplicates.map((lead) => lead.email));
-  const duplicatePhones = new Set(duplicates.map((lead) => lead.phone));
-  const creatable = validRows.filter((row) => {
-    const duplicate = duplicateEmails.has(row.email) || duplicatePhones.has(row.phone);
-    if (duplicate) rejected.push(`Row ${row.rowNumber}: duplicate email or phone already exists.`);
-    return !duplicate;
-  });
+  const existingLeads = await findExistingImportLeadIdentities(validRows);
+  const duplicateResult = rejectExistingLeadDuplicates(validRows, existingLeads);
+  rejected.push(...duplicateResult.rejected);
 
-  if (!creatable.length) return fail(`Import completed with 0 created and ${rejected.length} rejected rows.`);
-  const importedAt = new Date();
-  await db.$transaction(async (tx) => {
-    for (const row of creatable) {
-      const plan = buildLeadImportCreatePlan(row, importedAt, user.id);
-      const lead = await tx.lead.create({
-        data: plan.lead,
-        select: { id: true },
-      });
-      if (plan.deposit) {
-        await tx.deposit.create({
-          data: {
-            leadId: lead.id,
-            ...plan.deposit,
-          },
-        });
-      }
+  if (!duplicateResult.creatableRows.length) return fail(`Import completed with 0 created; rejected rows: ${rejected.length}; duplicate rows: ${duplicateResult.duplicateRows}; failed rows: 0.`);
+
+  const rejectedRows = rejected.length;
+  let createdLeads = 0;
+  let createdDeposits = 0;
+  let failedRows = 0;
+  const batches = chunkLeadImportRows(duplicateResult.creatableRows, DEFAULT_IMPORT_BATCH_SIZE);
+
+  for (const [index, batch] of batches.entries()) {
+    const batchStartedAt = Date.now();
+    try {
+      const result = await db.$transaction((tx) => createLeadImportBatch(tx, batch, user.id));
+      createdLeads += result.leadCount;
+      createdDeposits += result.depositCount;
+      console.info(`[import] batch ${index + 1}/${batches.length}: ${batch.length} rows, ${Date.now() - batchStartedAt}ms`);
+    } catch {
+      failedRows += batch.length;
+      const firstRow = batch[0]?.rowNumber;
+      const lastRow = batch[batch.length - 1]?.rowNumber;
+      rejected.push(`Rows ${firstRow}-${lastRow}: import batch failed.`);
+      console.warn(`[import] batch ${index + 1}/${batches.length}: ${batch.length} rows failed, ${Date.now() - batchStartedAt}ms`);
     }
-  });
-  return ok(`Import completed. Created ${creatable.length}; rejected ${rejected.length}. ${rejected.slice(0, 3).join(" ")}`.trim());
+  }
+
+  const summary = `Import completed. Total rows: ${rows.length}; created leads: ${createdLeads}; created deposits: ${createdDeposits}; rejected rows: ${rejectedRows}; duplicate rows: ${duplicateResult.duplicateRows}; failed rows: ${failedRows}.`;
+  console.info(`[import] completed: ${rows.length} rows in ${((Date.now() - importStartedAt) / 1000).toFixed(1)}s`);
+
+  if (!createdLeads) return fail(`${summary} ${rejected.slice(0, 3).join(" ")}`.trim());
+  return ok(`${summary} ${rejected.slice(0, 3).join(" ")}`.trim());
 }
