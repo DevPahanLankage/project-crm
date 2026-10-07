@@ -6,6 +6,7 @@ import { z } from "zod";
 import { read, utils } from "xlsx";
 import { getCountry, normalizeCountryCode } from "@/lib/countries";
 import { calculateDepositSummary, depositBelongsToLead, formatUsdAmount } from "@/lib/crm/deposit-summary";
+import { buildLeadImportCreatePlan, validateLeadImportRows } from "@/lib/crm/import-leads";
 import { db } from "@/lib/db";
 import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser } from "@/lib/leads/types";
 import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
@@ -420,70 +421,18 @@ export async function distributeLeads(user: AuthenticatedLeadUser, leadIds: stri
   return ok(`${shuffled.length} lead(s) distributed equally.`);
 }
 
-type ImportRow = Record<string, unknown>;
-
-function readString(row: ImportRow, header: string) {
-  const value = row[header];
-  return value == null ? "" : String(value).trim();
-}
-
-function affiliateFromFileName(fileName: string) {
-  return fileName.replace(/\.[^/.]+$/, "").trim();
-}
-
 export async function importLeadsFromExcel(user: AuthenticatedLeadUser, file: File): Promise<ActionState> {
   requireAdminUser(user);
   if (!file.name.match(/\.(xlsx|xls|csv)$/i)) return fail("Choose a .xlsx, .xls, or .csv file.");
-  const affiliate = affiliateFromFileName(file.name);
-  if (!affiliate) return fail("Uploaded file name must include an affiliate/source name.");
   const buffer = Buffer.from(await file.arrayBuffer());
   const workbook = read(buffer, { type: "buffer", raw: false, cellText: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return fail("Excel file has no readable sheets.");
-  const rows = utils.sheet_to_json<ImportRow>(sheet, { defval: "" });
+  const rows = utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
   if (!rows.length) return fail("Excel contains no valid rows.");
 
-  const required = ["First Name", "Last Name", "Email", "Phone", "Country"];
-  const headers = Object.keys(rows[0] ?? {});
-  const missing = required.filter((header) => !headers.includes(header));
+  const { missing, validRows, rejected } = validateLeadImportRows(rows);
   if (missing.length) return fail(`Missing required header(s): ${missing.join(", ")}.`);
-
-  const validRows: Array<{ firstName: string; lastName: string; email: string; phone: string; countryCode: string | null; affiliate: string }> = [];
-  const rejected: string[] = [];
-  const seenEmails = new Set<string>();
-  const seenPhones = new Set<string>();
-
-  rows.forEach((row, index) => {
-    const rowNumber = index + 2;
-    const firstName = readString(row, "First Name");
-    const lastName = readString(row, "Last Name");
-    const email = readString(row, "Email").toLowerCase();
-    const phone = readString(row, "Phone");
-    const countryCode = normalizeCountryCode(readString(row, "Country"));
-    if (!firstName || !lastName || !email || !phone) {
-      rejected.push(`Row ${rowNumber}: missing required field.`);
-      return;
-    }
-    if (!z.string().email().safeParse(email).success) {
-      rejected.push(`Row ${rowNumber}: invalid email.`);
-      return;
-    }
-    if (!/^\+?[0-9 ()-]{5,32}$/.test(phone)) {
-      rejected.push(`Row ${rowNumber}: invalid phone.`);
-      return;
-    }
-    if (countryCode && !getCountry(countryCode)) {
-      rejected.push(`Row ${rowNumber}: invalid country code.`);
-      return;
-    }
-    if (seenEmails.has(email) || seenPhones.has(phone)) {
-      rejected.push(`Row ${rowNumber}: duplicate email or phone in file.`);
-      return;
-    }
-    seenEmails.add(email);
-    seenPhones.add(phone);
-    validRows.push({ firstName, lastName, email, phone, countryCode, affiliate });
-  });
 
   if (!validRows.length) return fail(`Import failed. 0 valid rows. ${rejected.slice(0, 5).join(" ")}`);
 
@@ -493,13 +442,30 @@ export async function importLeadsFromExcel(user: AuthenticatedLeadUser, file: Fi
   });
   const duplicateEmails = new Set(duplicates.map((lead) => lead.email));
   const duplicatePhones = new Set(duplicates.map((lead) => lead.phone));
-  const creatable = validRows.filter((row, index) => {
+  const creatable = validRows.filter((row) => {
     const duplicate = duplicateEmails.has(row.email) || duplicatePhones.has(row.phone);
-    if (duplicate) rejected.push(`Row ${index + 2}: duplicate email or phone already exists.`);
+    if (duplicate) rejected.push(`Row ${row.rowNumber}: duplicate email or phone already exists.`);
     return !duplicate;
   });
 
   if (!creatable.length) return fail(`Import completed with 0 created and ${rejected.length} rejected rows.`);
-  await db.lead.createMany({ data: creatable });
+  const importedAt = new Date();
+  await db.$transaction(async (tx) => {
+    for (const row of creatable) {
+      const plan = buildLeadImportCreatePlan(row, importedAt, user.id);
+      const lead = await tx.lead.create({
+        data: plan.lead,
+        select: { id: true },
+      });
+      if (plan.deposit) {
+        await tx.deposit.create({
+          data: {
+            leadId: lead.id,
+            ...plan.deposit,
+          },
+        });
+      }
+    }
+  });
   return ok(`Import completed. Created ${creatable.length}; rejected ${rejected.length}. ${rejected.slice(0, 3).join(" ")}`.trim());
 }

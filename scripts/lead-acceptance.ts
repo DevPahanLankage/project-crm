@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { calculateDepositSummary, depositBelongsToLead } from "../src/lib/crm/deposit-summary";
+import { buildLeadImportCreatePlan, validateLeadImportRows } from "../src/lib/crm/import-leads";
 import { listMockLeads } from "../src/lib/leads/mock-repository";
 import { canAddDeposit, canAddNote, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead } from "../src/lib/leads/permissions";
 import { parseLeadQuery } from "../src/lib/leads/query";
@@ -169,6 +170,44 @@ assert.equal(middleDepositDeleted.lastDepositAt?.getTime(), depositThree.created
 assert.equal(depositBelongsToLead(null, "lead-1"), false);
 assert.equal(depositBelongsToLead({ id: "deposit-404", leadId: "lead-2" }, "lead-1"), false);
 assert.ok(depositBelongsToLead({ id: "deposit-1", leadId: "lead-1" }, "lead-1"));
+
+const importRows = [
+  { "First Name": "pecovaliz", "Last Name": "Walklerden", "E-mail": "pecovaliz@gmail.com", Number: "61429032508", Country: "AU", Source: "amoslimited", USD: "248.31" },
+  { "First Name": "blank", "Last Name": "Amount", "E-mail": "blank@example.com", Number: "61429032509", Country: "GB", Source: "blanksource", USD: "" },
+  { "First Name": "zero", "Last Name": "Amount", "E-mail": "zero@example.com", Number: "61429032510", Country: "US", Source: "zerosource", USD: "0.00" },
+  { "First Name": "alias", "Last Name": "Amount", "E-mail": "alias@example.com", Number: "61429032511", Country: "CA", Source: "aliassource", Amount: "1,250.50" },
+];
+const importValidation = validateLeadImportRows(importRows);
+assert.deepEqual(importValidation.missing, []);
+assert.deepEqual(importValidation.rejected, []);
+assert.equal(importValidation.validRows.length, 4);
+assert.equal(importValidation.validRows[0].affiliate, "amoslimited");
+assert.equal(importValidation.validRows[0].initialDepositAmount?.toFixed(2), "248.31");
+const importedAt = new Date("2026-10-07T12:00:00.000Z");
+const firstImportPlan = buildLeadImportCreatePlan(importValidation.validRows[0], importedAt, admin.id);
+assert.equal(firstImportPlan.lead.affiliate, "amoslimited");
+assert.equal(firstImportPlan.lead.totalBalance.toFixed(2), "248.31");
+assert.equal(firstImportPlan.lead.firstDepositAt?.getTime(), importedAt.getTime());
+assert.equal(firstImportPlan.lead.lastDepositAt?.getTime(), importedAt.getTime());
+assert.equal(firstImportPlan.deposit?.amount.toFixed(2), "248.31");
+assert.equal(firstImportPlan.deposit?.createdByUserId, admin.id);
+assert.equal(firstImportPlan.deposit?.createdAt.getTime(), importedAt.getTime());
+assert.equal("salesStatus" in firstImportPlan.lead, false);
+assert.equal("retentionStatus" in firstImportPlan.lead, false);
+assert.equal("activeTeam" in firstImportPlan.lead, false);
+assert.equal(buildLeadImportCreatePlan(importValidation.validRows[1], importedAt, admin.id).deposit, null);
+assert.equal(buildLeadImportCreatePlan(importValidation.validRows[1], importedAt, admin.id).lead.totalBalance.toFixed(2), "0.00");
+assert.equal(buildLeadImportCreatePlan(importValidation.validRows[2], importedAt, admin.id).deposit, null);
+assert.equal(buildLeadImportCreatePlan(importValidation.validRows[3], importedAt, admin.id).deposit?.amount.toFixed(2), "1250.50");
+assert.equal(buildLeadImportCreatePlan(importValidation.validRows[3], importedAt, admin.id).lead.affiliate, "aliassource");
+assert.equal(validateLeadImportRows([{ "First Name": "bad", "Last Name": "Amount", "E-mail": "bad@example.com", Number: "61429032512", Country: "AU", Source: "badsource", USD: "12.345" }]).rejected[0], "Row 2: Invalid initial deposit amount.");
+const duplicateImportValidation = validateLeadImportRows([
+  { "First Name": "dupe", "Last Name": "One", "E-mail": "dupe@example.com", Number: "61429032513", Country: "AU", Source: "dupesource", USD: "10" },
+  { "First Name": "dupe", "Last Name": "Two", "E-mail": "dupe@example.com", Number: "61429032514", Country: "AU", Source: "dupesource", USD: "20" },
+]);
+assert.equal(duplicateImportValidation.validRows.length, 1);
+assert.match(duplicateImportValidation.rejected[0], /duplicate email or phone/);
+assert.equal(buildLeadImportCreatePlan(duplicateImportValidation.validRows[0], importedAt, admin.id).deposit?.amount.toFixed(2), "10.00");
 
 const refreshState = leadListHref({ search: "Avery", retentionStatus: "ACTIVE", sort: "client", direction: "asc", page: "2", pageSize: "50" }, {});
 assert.match(refreshState, /search=Avery/);
