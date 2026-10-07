@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getCountry, normalizeCountryCode } from "@/lib/countries";
+import type { LeadImportRejectedRow, LeadImportReport } from "@/lib/leads/types";
 
 export type ImportRow = Record<string, unknown>;
 
@@ -13,6 +14,7 @@ export type ValidLeadImportRow = {
   countryCode: string | null;
   affiliate: string | null;
   initialDepositAmount: Prisma.Decimal | null;
+  values: Record<string, string>;
 };
 
 export type ExistingLeadImportIdentity = {
@@ -21,6 +23,7 @@ export type ExistingLeadImportIdentity = {
 };
 
 export const DEFAULT_IMPORT_BATCH_SIZE = 500;
+export const REJECTED_ROW_PREVIEW_LIMIT = 100;
 
 const HEADER_ALIASES = {
   firstName: ["First Name"],
@@ -46,13 +49,60 @@ function readString(row: ImportRow, aliases: readonly string[]) {
   return value == null ? "" : String(value).trim();
 }
 
+function stringifyImportValue(value: unknown) {
+  if (value == null) return "";
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+function importRowValues(row: ImportRow) {
+  return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, stringifyImportValue(value)]));
+}
+
+function identifierFromRow(row: ImportRow) {
+  const firstName = readString(row, HEADER_ALIASES.firstName);
+  const lastName = readString(row, HEADER_ALIASES.lastName);
+  const email = readString(row, HEADER_ALIASES.email);
+  const phone = readString(row, HEADER_ALIASES.phone);
+  const name = `${firstName} ${lastName}`.trim();
+  return {
+    email: email || null,
+    phone: phone || null,
+    name: name || null,
+  };
+}
+
+export function rejectedImportRow(row: ImportRow, rowNumber: number, reason: string): LeadImportRejectedRow {
+  return {
+    rowNumber,
+    reason,
+    ...identifierFromRow(row),
+    values: importRowValues(row),
+  };
+}
+
+export function rejectedImportRowFromValid(row: ValidLeadImportRow, reason: string): LeadImportRejectedRow {
+  return {
+    rowNumber: row.rowNumber,
+    reason,
+    email: row.email || null,
+    phone: row.phone || null,
+    name: `${row.firstName} ${row.lastName}`.trim() || null,
+    values: row.values,
+  };
+}
+
+function rejectionMessage(rejection: LeadImportRejectedRow) {
+  return `Row ${rejection.rowNumber}: ${rejection.reason}.`;
+}
+
 export function parseInitialDepositAmount(value: unknown) {
   if (value == null) return { ok: true as const, amount: null };
   const raw = typeof value === "number" ? String(value) : String(value).trim();
   if (!raw) return { ok: true as const, amount: null };
 
   const normalized = raw.replace(/,/g, "");
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return { ok: false as const, message: "Invalid initial deposit amount." };
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return { ok: false as const, message: "Invalid initial deposit amount" };
 
   const amount = new Prisma.Decimal(normalized).toDecimalPlaces(2);
   return amount.gt(0) ? { ok: true as const, amount } : { ok: true as const, amount: null };
@@ -70,13 +120,25 @@ export function validateLeadImportRows(rows: ImportRow[]) {
 
   const validRows: ValidLeadImportRow[] = [];
   const rejected: string[] = [];
+  const rejectedRows: LeadImportRejectedRow[] = [];
   const seenEmails = new Set<string>();
   const seenPhones = new Set<string>();
 
-  if (missing.length) return { headers, missing, validRows, rejected };
+  if (missing.length) return { headers, missing, validRows, rejected, rejectedRows };
 
   rows.forEach((row, index) => {
     const rowNumber = index + 2;
+    const addRejected = (reason: string) => {
+      const rejection = rejectedImportRow(row, rowNumber, reason);
+      rejectedRows.push(rejection);
+      rejected.push(rejectionMessage(rejection));
+    };
+
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      addRejected("Malformed row");
+      return;
+    }
+
     const firstName = readString(row, HEADER_ALIASES.firstName);
     const lastName = readString(row, HEADER_ALIASES.lastName);
     const email = readString(row, HEADER_ALIASES.email).toLowerCase();
@@ -85,37 +147,43 @@ export function validateLeadImportRows(rows: ImportRow[]) {
     const affiliate = readString(row, HEADER_ALIASES.source) || null;
     const initialDeposit = parseInitialDepositAmount(readValue(row, HEADER_ALIASES.amount));
 
-    if (!firstName || !lastName || !email || !phone) {
-      rejected.push(`Row ${rowNumber}: missing required field.`);
+    const missingFields = [
+      !firstName ? "first name" : null,
+      !lastName ? "last name" : null,
+      !email ? "email" : null,
+      !phone ? "phone" : null,
+    ].filter((field): field is string => Boolean(field));
+    if (missingFields.length) {
+      addRejected(`Missing required ${missingFields.join(", ")}`);
       return;
     }
     if (!z.string().email().safeParse(email).success) {
-      rejected.push(`Row ${rowNumber}: invalid email.`);
+      addRejected("Invalid email");
       return;
     }
     if (!/^\+?[0-9 ()-]{5,32}$/.test(phone)) {
-      rejected.push(`Row ${rowNumber}: invalid phone.`);
+      addRejected("Invalid phone");
       return;
     }
     if (countryCode && !getCountry(countryCode)) {
-      rejected.push(`Row ${rowNumber}: invalid country code.`);
+      addRejected("Invalid country code");
       return;
     }
     if (!initialDeposit.ok) {
-      rejected.push(`Row ${rowNumber}: ${initialDeposit.message}`);
+      addRejected(initialDeposit.message);
       return;
     }
     if (seenEmails.has(email) || seenPhones.has(phone)) {
-      rejected.push(`Row ${rowNumber}: duplicate email or phone in file.`);
+      addRejected("Duplicate lead");
       return;
     }
 
     seenEmails.add(email);
     seenPhones.add(phone);
-    validRows.push({ firstName, lastName, email, phone, countryCode, affiliate, initialDepositAmount: initialDeposit.amount, rowNumber });
+    validRows.push({ firstName, lastName, email, phone, countryCode, affiliate, initialDepositAmount: initialDeposit.amount, rowNumber, values: importRowValues(row) });
   });
 
-  return { headers, missing, validRows, rejected };
+  return { headers, missing, validRows, rejected, rejectedRows };
 }
 
 export function chunkLeadImportRows<T>(rows: readonly T[], batchSize = DEFAULT_IMPORT_BATCH_SIZE) {
@@ -131,19 +199,67 @@ export function rejectExistingLeadDuplicates(rows: readonly ValidLeadImportRow[]
   const duplicateEmails = new Set(existingLeads.map((lead) => lead.email));
   const duplicatePhones = new Set(existingLeads.map((lead) => lead.phone));
   const rejected: string[] = [];
+  const rejectedRows: LeadImportRejectedRow[] = [];
   const creatableRows: ValidLeadImportRow[] = [];
   let duplicateRows = 0;
 
   rows.forEach((row) => {
     if (duplicateEmails.has(row.email) || duplicatePhones.has(row.phone)) {
       duplicateRows += 1;
-      rejected.push(`Row ${row.rowNumber}: duplicate email or phone already exists.`);
+      const rejection = rejectedImportRowFromValid(row, "Duplicate lead");
+      rejectedRows.push(rejection);
+      rejected.push(rejectionMessage(rejection));
       return;
     }
     creatableRows.push(row);
   });
 
-  return { creatableRows, duplicateRows, rejected };
+  return { creatableRows, duplicateRows, rejected, rejectedRows };
+}
+
+function csvEscape(value: unknown) {
+  const text = stringifyImportValue(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+}
+
+export function buildRejectedRowsCsv(headers: readonly string[], rejectedRows: readonly LeadImportRejectedRow[]) {
+  const headerSet = new Set(headers);
+  for (const rejection of rejectedRows) {
+    Object.keys(rejection.values).forEach((header) => headerSet.add(header));
+  }
+  const originalHeaders = [...headerSet];
+  const csvHeaders = ["Spreadsheet Row", ...originalHeaders, "Rejection Reason"];
+  const lines = [
+    csvHeaders.map(csvEscape).join(","),
+    ...rejectedRows.map((rejection) => [
+      rejection.rowNumber,
+      ...originalHeaders.map((header) => rejection.values[header] ?? ""),
+      rejection.reason,
+    ].map(csvEscape).join(",")),
+  ];
+  return lines.join("\r\n");
+}
+
+export function buildLeadImportReport(params: {
+  headers: readonly string[];
+  totalRows: number;
+  createdLeads: number;
+  createdDeposits: number;
+  duplicateRows: number;
+  failedRows: number;
+  rejectedRows: readonly LeadImportRejectedRow[];
+}): LeadImportReport {
+  return {
+    totalRows: params.totalRows,
+    createdLeads: params.createdLeads,
+    createdDeposits: params.createdDeposits,
+    duplicateRows: params.duplicateRows,
+    rejectedRows: params.rejectedRows.length,
+    failedRows: params.failedRows,
+    rejectedPreviewLimit: REJECTED_ROW_PREVIEW_LIMIT,
+    rejectedItems: params.rejectedRows.slice(0, REJECTED_ROW_PREVIEW_LIMIT),
+    rejectedCsv: params.rejectedRows.length ? buildRejectedRowsCsv(params.headers, params.rejectedRows) : null,
+  };
 }
 
 export function buildLeadImportCreatePlan(row: ValidLeadImportRow, importedAt: Date, createdByUserId: string) {

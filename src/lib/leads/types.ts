@@ -160,6 +160,27 @@ export type UserListItem = {
 };
 
 export type AuthenticatedLeadUser = { id: string; role: Role };
-export type ActionState = { ok: boolean; message: string; errors?: Record<string, string[]> };
+export type LeadImportRejectedRow = {
+  rowNumber: number;
+  reason: string;
+  email: string | null;
+  phone: string | null;
+  name: string | null;
+  values: Record<string, string>;
+};
+
+export type LeadImportReport = {
+  totalRows: number;
+  createdLeads: number;
+  createdDeposits: number;
+  duplicateRows: number;
+  rejectedRows: number;
+  failedRows: number;
+  rejectedPreviewLimit: number;
+  rejectedItems: LeadImportRejectedRow[];
+  rejectedCsv: string | null;
+};
+
+export type ActionState = { ok: boolean; message: string; errors?: Record<string, string[]>; importReport?: LeadImportReport };
 
 export const emptyActionState: ActionState = { ok: false, message: "" };

@@ -630,6 +630,18 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 .admin-page { display: grid; gap: 12px; }
 .settings-section, .profile-section, .pinned-panel, .summary-card { padding: 13px; }
 .settings-form { display: grid; gap: 8px; max-width: 470px; }
+.import-result-panel { display: grid; gap: 9px; margin-top: 2px; }
+.import-result-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 9px; border: 1px solid var(--crm-border); border-radius: 9px; background: var(--crm-surface-subtle); }
+.import-result-summary span { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--crm-muted); font-size: 12px; }
+.import-result-summary strong { color: var(--crm-text); font-weight: 850; }
+.rejected-rows-panel { border: 1px solid var(--crm-border); border-radius: 9px; background: var(--crm-surface); overflow: hidden; }
+.rejected-rows-panel summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px; cursor: pointer; color: var(--crm-text); font-weight: 850; }
+.rejected-rows-actions { display: grid; gap: 7px; padding: 0 9px 9px; }
+.rejected-rows-actions .secondary-button { justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding-inline: 9px; }
+.rejected-rows-list { display: grid; gap: 7px; max-height: 340px; overflow: auto; padding: 0 9px 9px; }
+.rejected-row-card { display: grid; gap: 3px; padding: 8px; border: 1px solid var(--crm-border); border-radius: 8px; background: var(--crm-row-base); color: var(--crm-text); font-size: 12px; }
+.rejected-row-card span { color: var(--crm-muted); overflow-wrap: anywhere; }
+.rejected-row-card span:last-child { color: var(--crm-danger-text); }
 .settings-grid-form, .profile-form { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; }
 .settings-grid-form label, .profile-form label, .inline-form label, .add-deposit-form label { display: grid; gap: 5px; }
 .profile-form textarea, .modal textarea { min-height: 92px; padding: 8px 9px; resize: vertical; }

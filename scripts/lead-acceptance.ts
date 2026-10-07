@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { calculateDepositSummary, depositBelongsToLead } from "../src/lib/crm/deposit-summary";
-import { DEFAULT_IMPORT_BATCH_SIZE, buildLeadImportCreatePlan, chunkLeadImportRows, rejectExistingLeadDuplicates, validateLeadImportRows } from "../src/lib/crm/import-leads";
+import { DEFAULT_IMPORT_BATCH_SIZE, REJECTED_ROW_PREVIEW_LIMIT, buildLeadImportCreatePlan, buildLeadImportReport, buildRejectedRowsCsv, chunkLeadImportRows, rejectExistingLeadDuplicates, rejectedImportRowFromValid, validateLeadImportRows } from "../src/lib/crm/import-leads";
 import { listMockLeads } from "../src/lib/leads/mock-repository";
 import { canAddDeposit, canAddNote, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead } from "../src/lib/leads/permissions";
 import { parseLeadQuery } from "../src/lib/leads/query";
@@ -213,13 +213,21 @@ assert.equal(buildLeadImportCreatePlan(importValidation.validRows[1], importedAt
 assert.equal(buildLeadImportCreatePlan(importValidation.validRows[2], importedAt, admin.id).deposit, null);
 assert.equal(buildLeadImportCreatePlan(importValidation.validRows[3], importedAt, admin.id).deposit?.amount.toFixed(2), "1250.50");
 assert.equal(buildLeadImportCreatePlan(importValidation.validRows[3], importedAt, admin.id).lead.affiliate, "aliassource");
-assert.equal(validateLeadImportRows([{ "First Name": "bad", "Last Name": "Amount", "E-mail": "bad@example.com", Number: "61429032512", Country: "AU", Source: "badsource", USD: "12.345" }]).rejected[0], "Row 2: Invalid initial deposit amount.");
+const invalidAmountValidation = validateLeadImportRows([{ "First Name": "bad", "Last Name": "Amount", "E-mail": "bad@example.com", Number: "61429032512", Country: "AU", Source: "badsource", USD: "12.345" }]);
+assert.equal(invalidAmountValidation.rejectedRows[0].rowNumber, 2);
+assert.equal(invalidAmountValidation.rejectedRows[0].email, "bad@example.com");
+assert.equal(invalidAmountValidation.rejectedRows[0].reason, "Invalid initial deposit amount");
+assert.equal(invalidAmountValidation.rejected[0], "Row 2: Invalid initial deposit amount.");
+const missingEmailValidation = validateLeadImportRows([{ "First Name": "missing", "Last Name": "Email", "E-mail": "", Number: "61429032515", Country: "AU", Source: "missingsource", USD: "" }]);
+assert.equal(missingEmailValidation.rejectedRows[0].rowNumber, 2);
+assert.equal(missingEmailValidation.rejectedRows[0].email, null);
+assert.equal(missingEmailValidation.rejectedRows[0].reason, "Missing required email");
 const duplicateImportValidation = validateLeadImportRows([
   { "First Name": "dupe", "Last Name": "One", "E-mail": "dupe@example.com", Number: "61429032513", Country: "AU", Source: "dupesource", USD: "10" },
   { "First Name": "dupe", "Last Name": "Two", "E-mail": "dupe@example.com", Number: "61429032514", Country: "AU", Source: "dupesource", USD: "20" },
 ]);
 assert.equal(duplicateImportValidation.validRows.length, 1);
-assert.match(duplicateImportValidation.rejected[0], /duplicate email or phone/);
+assert.equal(duplicateImportValidation.rejectedRows[0].reason, "Duplicate lead");
 assert.equal(buildLeadImportCreatePlan(duplicateImportValidation.validRows[0], importedAt, admin.id).deposit?.amount.toFixed(2), "10.00");
 
 const boundaryRows = Array.from({ length: DEFAULT_IMPORT_BATCH_SIZE + 1 }, (_, index) => makeImportRow(index + 1));
@@ -241,7 +249,7 @@ const acrossBatchDuplicateRows = [
 ];
 const acrossBatchDuplicateValidation = validateLeadImportRows(acrossBatchDuplicateRows);
 assert.equal(acrossBatchDuplicateValidation.validRows.length, DEFAULT_IMPORT_BATCH_SIZE);
-assert.match(acrossBatchDuplicateValidation.rejected[0], /duplicate email or phone in file/);
+assert.equal(acrossBatchDuplicateValidation.rejectedRows[0].reason, "Duplicate lead");
 
 const acrossBatchInvalidRows = [
   ...Array.from({ length: DEFAULT_IMPORT_BATCH_SIZE }, (_, index) => makeImportRow(index + 30_000)),
@@ -251,14 +259,14 @@ const acrossBatchInvalidRows = [
 const acrossBatchInvalidValidation = validateLeadImportRows(acrossBatchInvalidRows);
 assert.equal(acrossBatchInvalidValidation.validRows.length, DEFAULT_IMPORT_BATCH_SIZE);
 assert.equal(acrossBatchInvalidValidation.rejected.length, 2);
-assert.match(acrossBatchInvalidValidation.rejected[0], /invalid country code/);
-assert.match(acrossBatchInvalidValidation.rejected[1], /invalid email/);
+assert.equal(acrossBatchInvalidValidation.rejectedRows[0].reason, "Invalid country code");
+assert.equal(acrossBatchInvalidValidation.rejectedRows[1].reason, "Invalid email");
 
 const databaseDuplicateValidation = validateLeadImportRows([makeImportRow(40_001), makeImportRow(40_002)]);
 const databaseDuplicateResult = rejectExistingLeadDuplicates(databaseDuplicateValidation.validRows, [{ email: "lead40002@example.com", phone: "614290040002" }]);
 assert.equal(databaseDuplicateResult.creatableRows.length, 1);
 assert.equal(databaseDuplicateResult.duplicateRows, 1);
-assert.match(databaseDuplicateResult.rejected[0], /already exists/);
+assert.equal(databaseDuplicateResult.rejectedRows[0].reason, "Duplicate lead");
 
 const depositBatchValidation = validateLeadImportRows([
   makeImportRow(50_001, { USD: "100.00" }),
@@ -282,6 +290,29 @@ assert.equal(rollbackBatches.length, 3);
 assert.equal(committedRows.length, 700);
 assert.equal(committedRows.includes(rollbackBatches[failedBatchIndex][0].rowNumber), false);
 assert.ok(committedRows.includes(rollbackBatches[0][0].rowNumber));
+
+const failedBatchRejections = rollbackBatches[failedBatchIndex].map((row) => rejectedImportRowFromValid(row, "Import batch failed. Please retry these rows"));
+assert.equal(failedBatchRejections[0].rowNumber, rollbackBatches[failedBatchIndex][0].rowNumber);
+assert.equal(failedBatchRejections[0].reason, "Import batch failed. Please retry these rows");
+
+const exportRows = [invalidAmountValidation.rejectedRows[0], missingEmailValidation.rejectedRows[0], databaseDuplicateResult.rejectedRows[0], failedBatchRejections[0]];
+const rejectedCsv = buildRejectedRowsCsv(invalidAmountValidation.headers, exportRows);
+assert.match(rejectedCsv, /Spreadsheet Row,First Name,Last Name,E-mail,Number,Country,Source,USD,Rejection Reason/);
+assert.match(rejectedCsv, /bad@example.com/);
+assert.match(rejectedCsv, /Invalid initial deposit amount/);
+assert.match(rejectedCsv, /Duplicate lead/);
+const cappedReport = buildLeadImportReport({
+  headers: invalidAmountValidation.headers,
+  totalRows: 150,
+  createdLeads: 0,
+  createdDeposits: 0,
+  duplicateRows: 1,
+  failedRows: failedBatchRejections.length,
+  rejectedRows: Array.from({ length: REJECTED_ROW_PREVIEW_LIMIT + 25 }, (_, index) => ({ ...exportRows[index % exportRows.length], rowNumber: index + 2 })),
+});
+assert.equal(cappedReport.rejectedItems.length, REJECTED_ROW_PREVIEW_LIMIT);
+assert.equal(cappedReport.rejectedRows, REJECTED_ROW_PREVIEW_LIMIT + 25);
+assert.ok(cappedReport.rejectedCsv?.includes("Rejection Reason"));
 
 const refreshState = leadListHref({ search: "Avery", retentionStatus: "ACTIVE", sort: "client", direction: "asc", page: "2", pageSize: "50" }, {});
 assert.match(refreshState, /search=Avery/);

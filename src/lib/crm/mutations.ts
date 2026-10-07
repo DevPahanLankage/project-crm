@@ -8,14 +8,16 @@ import { getCountry, normalizeCountryCode } from "@/lib/countries";
 import { calculateDepositSummary, depositBelongsToLead, formatUsdAmount } from "@/lib/crm/deposit-summary";
 import {
   DEFAULT_IMPORT_BATCH_SIZE,
+  buildLeadImportReport,
   buildLeadImportCreatePlan,
   chunkLeadImportRows,
   rejectExistingLeadDuplicates,
+  rejectedImportRowFromValid,
   validateLeadImportRows,
   type ValidLeadImportRow,
 } from "@/lib/crm/import-leads";
 import { db } from "@/lib/db";
-import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser } from "@/lib/leads/types";
+import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser, type LeadImportRejectedRow } from "@/lib/leads/types";
 import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
 
 const ok = (message: string): ActionState => ({ ok: true, message });
@@ -470,18 +472,40 @@ export async function importLeadsFromExcel(user: AuthenticatedLeadUser, file: Fi
   if (!rows.length) return fail("Excel contains no valid rows.");
   console.info(`[import] parsed rows: ${rows.length}`);
 
-  const { missing, validRows, rejected } = validateLeadImportRows(rows);
+  const { headers, missing, validRows, rejected, rejectedRows: validationRejectedRows } = validateLeadImportRows(rows);
   if (missing.length) return fail(`Missing required header(s): ${missing.join(", ")}.`);
 
-  if (!validRows.length) return fail(`Import failed. 0 valid rows. ${rejected.slice(0, 5).join(" ")}`);
+  if (!validRows.length) {
+    const report = buildLeadImportReport({
+      headers,
+      totalRows: rows.length,
+      createdLeads: 0,
+      createdDeposits: 0,
+      duplicateRows: 0,
+      failedRows: 0,
+      rejectedRows: validationRejectedRows,
+    });
+    return { ...fail(`Import failed. 0 valid rows. ${rejected.slice(0, 5).join(" ")}`), importReport: report };
+  }
 
   const existingLeads = await findExistingImportLeadIdentities(validRows);
   const duplicateResult = rejectExistingLeadDuplicates(validRows, existingLeads);
   rejected.push(...duplicateResult.rejected);
+  const rejectedDetails: LeadImportRejectedRow[] = [...validationRejectedRows, ...duplicateResult.rejectedRows];
 
-  if (!duplicateResult.creatableRows.length) return fail(`Import completed with 0 created; rejected rows: ${rejected.length}; duplicate rows: ${duplicateResult.duplicateRows}; failed rows: 0.`);
+  if (!duplicateResult.creatableRows.length) {
+    const report = buildLeadImportReport({
+      headers,
+      totalRows: rows.length,
+      createdLeads: 0,
+      createdDeposits: 0,
+      duplicateRows: duplicateResult.duplicateRows,
+      failedRows: 0,
+      rejectedRows: rejectedDetails,
+    });
+    return { ...fail(`Import completed with 0 created; rejected rows: ${report.rejectedRows}; duplicate rows: ${report.duplicateRows}; failed rows: 0.`), importReport: report };
+  }
 
-  const rejectedRows = rejected.length;
   let createdLeads = 0;
   let createdDeposits = 0;
   let failedRows = 0;
@@ -498,14 +522,25 @@ export async function importLeadsFromExcel(user: AuthenticatedLeadUser, file: Fi
       failedRows += batch.length;
       const firstRow = batch[0]?.rowNumber;
       const lastRow = batch[batch.length - 1]?.rowNumber;
+      const batchFailures = batch.map((row) => rejectedImportRowFromValid(row, "Import batch failed. Please retry these rows"));
+      rejectedDetails.push(...batchFailures);
       rejected.push(`Rows ${firstRow}-${lastRow}: import batch failed.`);
       console.warn(`[import] batch ${index + 1}/${batches.length}: ${batch.length} rows failed, ${Date.now() - batchStartedAt}ms`);
     }
   }
 
-  const summary = `Import completed. Total rows: ${rows.length}; created leads: ${createdLeads}; created deposits: ${createdDeposits}; rejected rows: ${rejectedRows}; duplicate rows: ${duplicateResult.duplicateRows}; failed rows: ${failedRows}.`;
+  const report = buildLeadImportReport({
+    headers,
+    totalRows: rows.length,
+    createdLeads,
+    createdDeposits,
+    duplicateRows: duplicateResult.duplicateRows,
+    failedRows,
+    rejectedRows: rejectedDetails,
+  });
+  const summary = `Import completed. Total rows: ${rows.length}; created leads: ${createdLeads}; created deposits: ${createdDeposits}; rejected rows: ${report.rejectedRows}; duplicate rows: ${duplicateResult.duplicateRows}; failed rows: ${failedRows}.`;
   console.info(`[import] completed: ${rows.length} rows in ${((Date.now() - importStartedAt) / 1000).toFixed(1)}s`);
 
-  if (!createdLeads) return fail(`${summary} ${rejected.slice(0, 3).join(" ")}`.trim());
-  return ok(`${summary} ${rejected.slice(0, 3).join(" ")}`.trim());
+  if (!createdLeads) return { ...fail(`${summary} ${rejected.slice(0, 3).join(" ")}`.trim()), importReport: report };
+  return { ...ok(`${summary} ${rejected.slice(0, 3).join(" ")}`.trim()), importReport: report };
 }
