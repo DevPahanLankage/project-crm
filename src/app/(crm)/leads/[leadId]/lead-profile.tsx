@@ -7,7 +7,7 @@ import { ActionMessage } from "@/components/action-state";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountryCode } from "@/components/country-code";
 import { SubmitButton } from "@/components/submit-button";
-import { canAddDeposit, canAddNote, canEditProfile, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
+import { canAddDeposit, canAddNote, canDeleteNote, canEditProfile, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
 import { ACTIVE_TEAMS, ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, ROLE_LABELS, SALES_STATUSES, SALES_STATUS_LABELS, emptyActionState, type AgentOption, type AuthenticatedLeadUser, type LeadDetail } from "@/lib/leads/types";
 
 const exactDateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
@@ -67,7 +67,7 @@ function statusClass(status: string) {
   return `status-${status.toLocaleLowerCase().replaceAll("_", "-")}`;
 }
 
-function PinnedNoteCard({ note, leadId, canPin }: { note: LeadDetail["pinnedNotes"][number]; leadId: string; canPin: boolean }) {
+function PinnedNoteCard({ note, leadId, canDelete }: { note: LeadDetail["pinnedNotes"][number]; leadId: string; canDelete: boolean }) {
   const [deleteState, deleteAction, pending] = useActionState(deletePinnedNoteAction, emptyActionState);
   const author = note.createdBy ? `${note.createdBy.fullName} - ${ROLE_LABELS[note.createdBy.role]}` : "System";
 
@@ -75,7 +75,7 @@ function PinnedNoteCard({ note, leadId, canPin }: { note: LeadDetail["pinnedNote
     <article className="pinned-note">
       <header className="pinned-note-header">
         <small>{author} - {longDateTime.format(note.createdAt)}</small>
-        {canPin && <form action={deleteAction} onSubmit={(event) => { if (!confirm("Delete pinned note?\n\nAre you sure you want to permanently delete this note?")) event.preventDefault(); }}>
+        {canDelete && <form action={deleteAction} onSubmit={(event) => { if (!confirm("Delete pinned note?\n\nAre you sure you want to permanently delete this note?")) event.preventDefault(); }}>
           <input type="hidden" name="leadId" value={leadId} />
           <input type="hidden" name="noteId" value={note.id} />
           <button className="note-delete-button" type="submit" title="Delete pinned note" aria-label="Delete pinned note" disabled={pending}>
@@ -113,6 +113,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
   const notesEditable = canAddNote(viewer, accessLead);
   const profileEditable = canEditProfile(viewer);
   const pinEditable = canToggleNotePin(viewer, accessLead);
+  const noteDeleteAllowed = canDeleteNote(viewer);
 
   async function noteAction(formData: FormData) {
     const result = await addNoteAction(emptyActionState, formData);
@@ -223,7 +224,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
 
         <aside className="pinned-panel">
           <h2><NotebookText size={16} />Pinned notes</h2>
-          {lead.pinnedNotes.length ? lead.pinnedNotes.map((note) => <PinnedNoteCard key={note.id} note={note} leadId={lead.id} canPin={pinEditable} />) : <p className="empty-inline">No pinned notes.</p>}
+          {lead.pinnedNotes.length ? lead.pinnedNotes.map((note) => <PinnedNoteCard key={note.id} note={note} leadId={lead.id} canDelete={noteDeleteAllowed} />) : <p className="empty-inline">No pinned notes.</p>}
         </aside>
       </div>
 

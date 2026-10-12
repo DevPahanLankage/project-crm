@@ -55,6 +55,10 @@ export function canDeleteDeposit(user: AuthenticatedLeadUser) {
   return isAdmin(user);
 }
 
+export function canDeleteNote(user: AuthenticatedLeadUser) {
+  return isAdmin(user);
+}
+
 export function canEditProfile(user: AuthenticatedLeadUser) {
   return isAdmin(user);
 }

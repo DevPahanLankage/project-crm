@@ -19,7 +19,7 @@ import {
 } from "@/lib/crm/import-leads";
 import { db } from "@/lib/db";
 import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type ActionState, type AuthenticatedLeadUser, type LeadImportRejectedRow } from "@/lib/leads/types";
-import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
+import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canDeleteNote, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
 
 const ok = (message: string): ActionState => ({ ok: true, message });
 const fail = (message: string, errors?: Record<string, string[]>): ActionState => ({ ok: false, message, errors });
@@ -389,7 +389,7 @@ export async function toggleNotePin(user: AuthenticatedLeadUser, noteId: string)
 }
 
 export async function deletePinnedNote(user: AuthenticatedLeadUser, noteId: string): Promise<ActionState> {
-  if (user.role !== "ADMIN") return fail("Only Admins can delete pinned notes.");
+  if (!canDeleteNote(user)) return fail("Only Admins can delete notes.");
   const note = await db.note.findUnique({ where: { id: noteId }, select: { id: true, leadId: true, isPinned: true } });
   if (!note || !note.isPinned) return fail("Pinned note not found.");
 
