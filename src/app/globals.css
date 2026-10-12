@@ -613,8 +613,11 @@ button svg, a svg, h2 svg, .summary-card span svg { flex: 0 0 auto; }
 .pagination span { border: 1px solid var(--crm-table-border); background: var(--crm-surface-subtle); color: var(--crm-muted); }
 .pagination span[aria-disabled="true"] { color: var(--crm-muted); cursor: default; background: var(--crm-surface-subtle); border-color: var(--crm-table-border); }
 
-.bulk-bar { display: flex; align-items: center; gap: 7px; padding: 9px 10px; border-bottom: 1px solid var(--crm-border); background: linear-gradient(180deg, var(--crm-toolbar-end), var(--crm-surface)); }
+.bulk-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 9px 10px; border-bottom: 1px solid var(--crm-border); background: linear-gradient(180deg, var(--crm-toolbar-end), var(--crm-surface)); }
 .bulk-bar strong { margin-right: 4px; font-weight: 800; }
+.bulk-action-group { display: inline-flex; align-items: center; gap: 5px; padding: 3px; border: 1px solid var(--crm-border); border-radius: 9px; background: var(--crm-surface-subtle); }
+.bulk-action-group > span { padding: 0 5px; color: var(--crm-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: .045em; }
+.bulk-action-group button { min-height: 29px; padding-inline: 8px; box-shadow: none; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--crm-modal-overlay); padding: 24px; backdrop-filter: blur(3px); }
 .modal { width: min(450px, 100%); border: 1px solid var(--crm-border-strong); border-radius: 14px; background: var(--crm-surface-raised); box-shadow: 0 24px 70px rgb(0 0 0 / 25%); padding: 16px; }
 .modal h2, .settings-section h2, .profile-section h2, .pinned-panel h2 { margin: 0 0 11px; font-family: var(--font-display); font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 7px; }

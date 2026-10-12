@@ -41,7 +41,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           </form>
           <RefreshButton />
         </div>
-        {result.items.length ? <LeadsTable items={result.items} retentionAgents={result.retentionAgents} isAdmin={isAdmin} query={query} params={params} /> : <div className="leads-empty"><strong>No leads found</strong><span>Try changing or resetting the current filters.</span></div>}
+        {result.items.length ? <LeadsTable items={result.items} salesAgents={result.salesAgents} retentionAgents={result.retentionAgents} isAdmin={isAdmin} query={query} params={params} /> : <div className="leads-empty"><strong>No leads found</strong><span>Try changing or resetting the current filters.</span></div>}
         <div className="table-footer">
           <form className="page-size-form" action="/leads" method="get">
             {preservedInputs(params, ["page", "pageSize"])}

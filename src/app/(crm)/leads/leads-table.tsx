@@ -3,7 +3,15 @@
 import { Shuffle, Trash2, UserMinus, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
-import { bulkAssignLeadsAction, bulkDeleteLeadsAction, bulkUnassignLeadsAction, distributeLeadsAction } from "@/app/(crm)/crm-actions";
+import {
+  bulkAssignRetentionLeadsAction,
+  bulkAssignSalesLeadsAction,
+  bulkDeleteLeadsAction,
+  bulkUnassignRetentionLeadsAction,
+  bulkUnassignSalesLeadsAction,
+  distributeRetentionLeadsAction,
+  distributeSalesLeadsAction,
+} from "@/app/(crm)/crm-actions";
 import { ActionMessage } from "@/components/action-state";
 import { CountryCode } from "@/components/country-code";
 import { ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, SALES_STATUS_LABELS, emptyActionState, type AgentOption, type LeadListItem, type LeadQuery, type LeadSort } from "@/lib/leads/types";
@@ -11,7 +19,7 @@ import { leadListHref, type LeadSearchParams } from "@/lib/leads/url";
 
 const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
 
-type Modal = "assign" | "distribute" | "unassign" | "delete" | null;
+type Modal = "assignSales" | "distributeSales" | "unassignSales" | "assignRetention" | "distributeRetention" | "unassignRetention" | "delete" | null;
 
 function money(value: string) {
   const [whole, decimal = "00"] = value.split(".");
@@ -62,13 +70,16 @@ function statusClass(status: string) {
   return `status-${status.toLocaleLowerCase().replaceAll("_", "-")}`;
 }
 
-export function LeadsTable({ items, retentionAgents, isAdmin, query, params }: { items: LeadListItem[]; retentionAgents: AgentOption[]; isAdmin: boolean; query: LeadQuery; params: LeadSearchParams }) {
+export function LeadsTable({ items, salesAgents, retentionAgents, isAdmin, query, params }: { items: LeadListItem[]; salesAgents: AgentOption[]; retentionAgents: AgentOption[]; isAdmin: boolean; query: LeadQuery; params: LeadSearchParams }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [modal, setModal] = useState<Modal>(null);
-  const [assignState, assignAction, assignPending] = useActionState(bulkAssignLeadsAction, emptyActionState);
-  const [unassignState, unassignAction, unassignPending] = useActionState(bulkUnassignLeadsAction, emptyActionState);
+  const [assignSalesState, assignSalesAction, assignSalesPending] = useActionState(bulkAssignSalesLeadsAction, emptyActionState);
+  const [assignRetentionState, assignRetentionAction, assignRetentionPending] = useActionState(bulkAssignRetentionLeadsAction, emptyActionState);
+  const [unassignSalesState, unassignSalesAction, unassignSalesPending] = useActionState(bulkUnassignSalesLeadsAction, emptyActionState);
+  const [unassignRetentionState, unassignRetentionAction, unassignRetentionPending] = useActionState(bulkUnassignRetentionLeadsAction, emptyActionState);
   const [deleteState, deleteAction, deletePending] = useActionState(bulkDeleteLeadsAction, emptyActionState);
-  const [distributeState, distributeAction, distributePending] = useActionState(distributeLeadsAction, emptyActionState);
+  const [distributeSalesState, distributeSalesAction, distributeSalesPending] = useActionState(distributeSalesLeadsAction, emptyActionState);
+  const [distributeRetentionState, distributeRetentionAction, distributeRetentionPending] = useActionState(distributeRetentionLeadsAction, emptyActionState);
   const allIds = useMemo(() => items.map((item) => item.id), [items]);
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id));
   const selectedCount = selected.length;
@@ -86,9 +97,18 @@ export function LeadsTable({ items, retentionAgents, isAdmin, query, params }: {
       {isAdmin && selectedCount > 0 && (
         <div className="bulk-bar">
           <strong>{selectedCount} selected</strong>
-          <button type="button" onClick={() => setModal("assign")}><UserPlus size={14} />Assign Retention agent</button>
-          <button type="button" onClick={() => setModal("distribute")}><Shuffle size={14} />Distribute to Retention</button>
-          <button type="button" onClick={() => setModal("unassign")}><UserMinus size={14} />Unassign Retention</button>
+          <div className="bulk-action-group" aria-label="Sales bulk actions">
+            <span>Sales</span>
+            <button type="button" onClick={() => setModal("assignSales")}><UserPlus size={14} />Assign</button>
+            <button type="button" onClick={() => setModal("distributeSales")}><Shuffle size={14} />Distribute</button>
+            <button type="button" onClick={() => setModal("unassignSales")}><UserMinus size={14} />Unassign</button>
+          </div>
+          <div className="bulk-action-group" aria-label="Retention bulk actions">
+            <span>Retention</span>
+            <button type="button" onClick={() => setModal("assignRetention")}><UserPlus size={14} />Assign</button>
+            <button type="button" onClick={() => setModal("distributeRetention")}><Shuffle size={14} />Distribute</button>
+            <button type="button" onClick={() => setModal("unassignRetention")}><UserMinus size={14} />Unassign</button>
+          </div>
           <button className="danger-button" type="button" onClick={() => setModal("delete")}><Trash2 size={14} />Delete selected</button>
         </div>
       )}
@@ -127,29 +147,52 @@ export function LeadsTable({ items, retentionAgents, isAdmin, query, params }: {
 
       {modal && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
         <div className="modal" role="dialog" aria-modal="true">
-          {modal === "assign" && <form action={assignAction}>
+          {modal === "assignSales" && <form action={assignSalesAction}>
+            <h2>Assign to Sales agent</h2>
+            <p>{selectedCount} selected lead(s)</p>
+            <HiddenLeadIds selected={selected} />
+            <label className="filter-field"><span>SALES AGENT</span><select name="salesAgentId" required>{salesAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label>
+            <ActionMessage state={assignSalesState} />
+            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={assignSalesPending}><UserPlus size={14} />Assign</button></div>
+          </form>}
+          {modal === "distributeSales" && <form action={distributeSalesAction}>
+            <h2>Distribute leads equally to Sales</h2>
+            <p>{selectedCount} selected lead(s) will be assigned evenly between the selected Sales agents.</p>
+            <HiddenLeadIds selected={selected} />
+            <div className="check-list">{salesAgents.map((agent) => <label key={agent.id}><input type="checkbox" name="agentIds" value={agent.id} /> {agent.fullName}</label>)}</div>
+            <ActionMessage state={distributeSalesState} />
+            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={distributeSalesPending}><Shuffle size={14} />Distribute equally</button></div>
+          </form>}
+          {modal === "unassignSales" && <form action={unassignSalesAction}>
+            <h2>Unassign Sales agent</h2>
+            <p>{selectedCount} selected lead(s) will become unassigned from Sales. Retention assignment will be preserved.</p>
+            <HiddenLeadIds selected={selected} />
+            <ActionMessage state={unassignSalesState} />
+            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={unassignSalesPending}><UserMinus size={14} />Unassign Sales</button></div>
+          </form>}
+          {modal === "assignRetention" && <form action={assignRetentionAction}>
             <h2>Assign to Retention agent</h2>
             <p>{selectedCount} selected lead(s)</p>
             <HiddenLeadIds selected={selected} />
-            <label className="filter-field"><span>RETENTION AGENT</span><select name="assignedAgentId" required>{retentionAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label>
-            <ActionMessage state={assignState} />
-            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={assignPending}><UserPlus size={14} />Assign</button></div>
+            <label className="filter-field"><span>RETENTION AGENT</span><select name="retentionAgentId" required>{retentionAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label>
+            <ActionMessage state={assignRetentionState} />
+            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={assignRetentionPending}><UserPlus size={14} />Assign</button></div>
           </form>}
-          {modal === "distribute" && <form action={distributeAction}>
+          {modal === "distributeRetention" && <form action={distributeRetentionAction}>
             <h2>Distribute leads equally to Retention</h2>
             <p>{selectedCount} selected lead(s) will be assigned evenly between the selected Retention agents.</p>
             <HiddenLeadIds selected={selected} />
             <label className="filter-field"><span>RETENTION STATUS SCOPE</span><select name="statusScope"><option value="all">All selected (any status)</option>{RETENTION_STATUSES.map((status) => <option key={status} value={status}>{RETENTION_STATUS_LABELS[status]}</option>)}</select></label>
             <div className="check-list">{retentionAgents.map((agent) => <label key={agent.id}><input type="checkbox" name="agentIds" value={agent.id} /> {agent.fullName}</label>)}</div>
-            <ActionMessage state={distributeState} />
-            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={distributePending}><Shuffle size={14} />Distribute equally</button></div>
+            <ActionMessage state={distributeRetentionState} />
+            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={distributeRetentionPending}><Shuffle size={14} />Distribute equally</button></div>
           </form>}
-          {modal === "unassign" && <form action={unassignAction}>
+          {modal === "unassignRetention" && <form action={unassignRetentionAction}>
             <h2>Unassign Retention agent</h2>
-            <p>{selectedCount} selected lead(s) will become unassigned from Retention.</p>
+            <p>{selectedCount} selected lead(s) will become unassigned from Retention. Sales assignment will be preserved.</p>
             <HiddenLeadIds selected={selected} />
-            <ActionMessage state={unassignState} />
-            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={unassignPending}><UserMinus size={14} />Unassign agent</button></div>
+            <ActionMessage state={unassignRetentionState} />
+            <div className="modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button className="compact-primary" disabled={unassignRetentionPending}><UserMinus size={14} />Unassign Retention</button></div>
           </form>}
           {modal === "delete" && <form action={deleteAction}>
             <h2>Delete selected</h2>

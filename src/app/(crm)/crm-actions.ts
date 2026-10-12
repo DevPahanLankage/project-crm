@@ -6,15 +6,18 @@ import { requireAuthenticatedUser } from "@/lib/auth";
 import {
   addDeposit,
   addNote,
-  bulkAssignLeads,
+  bulkAssignRetentionLeads,
+  bulkAssignSalesLeads,
   bulkDeleteLeads,
-  bulkUnassignLeads,
+  bulkUnassignRetentionLeads,
+  bulkUnassignSalesLeads,
   createOrUpdateUser,
   deleteDeposit,
   deleteLead,
   deletePinnedNote,
   deleteUser,
-  distributeLeads,
+  distributeRetentionLeads,
+  distributeSalesLeads,
   importLeadsFromExcel,
   toggleNotePin,
   updateActiveTeam,
@@ -147,16 +150,30 @@ export async function deleteLeadAction(formData: FormData) {
   redirect("/leads");
 }
 
-export async function bulkAssignLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+export async function bulkAssignSalesLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireAuthenticatedUser();
-  const result = await bulkAssignLeads(user, selectedIds(formData), String(formData.get("assignedAgentId") ?? ""));
+  const result = await bulkAssignSalesLeads(user, selectedIds(formData), String(formData.get("salesAgentId") ?? ""));
   revalidatePath("/leads");
   return result;
 }
 
-export async function bulkUnassignLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+export async function bulkAssignRetentionLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireAuthenticatedUser();
-  const result = await bulkUnassignLeads(user, selectedIds(formData));
+  const result = await bulkAssignRetentionLeads(user, selectedIds(formData), String(formData.get("retentionAgentId") ?? ""));
+  revalidatePath("/leads");
+  return result;
+}
+
+export async function bulkUnassignSalesLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await bulkUnassignSalesLeads(user, selectedIds(formData));
+  revalidatePath("/leads");
+  return result;
+}
+
+export async function bulkUnassignRetentionLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await bulkUnassignRetentionLeads(user, selectedIds(formData));
   revalidatePath("/leads");
   return result;
 }
@@ -168,10 +185,17 @@ export async function bulkDeleteLeadsAction(_state: ActionState, formData: FormD
   return result;
 }
 
-export async function distributeLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+export async function distributeSalesLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireAuthenticatedUser();
+  const result = await distributeSalesLeads(user, selectedIds(formData), selectedAgentIds(formData));
+  revalidatePath("/leads");
+  return result;
+}
+
+export async function distributeRetentionLeadsAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireAuthenticatedUser();
   const scope = String(formData.get("statusScope") ?? "all");
-  const result = await distributeLeads(user, selectedIds(formData), selectedAgentIds(formData), scope === "all" ? "all" : scope as never);
+  const result = await distributeRetentionLeads(user, selectedIds(formData), selectedAgentIds(formData), scope === "all" ? "all" : scope as never);
   revalidatePath("/leads");
   return result;
 }

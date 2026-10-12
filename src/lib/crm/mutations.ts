@@ -5,6 +5,7 @@ import { Prisma, type LeadActiveTeam, RetentionStatus, SalesStatus } from "@pris
 import { z } from "zod";
 import { read, utils } from "xlsx";
 import { getCountry, normalizeCountryCode } from "@/lib/countries";
+import { bulkAssignData, bulkAssignmentAgentRole, bulkAssignmentLabel, bulkUnassignData, type BulkAssignmentTeam } from "@/lib/crm/bulk-assignment";
 import { calculateDepositSummary, depositBelongsToLead, formatUsdAmount } from "@/lib/crm/deposit-summary";
 import {
   DEFAULT_IMPORT_BATCH_SIZE,
@@ -420,19 +421,36 @@ export async function deleteLead(user: AuthenticatedLeadUser, leadId: string): P
   return ok("Lead deleted.");
 }
 
-export async function bulkAssignLeads(user: AuthenticatedLeadUser, leadIds: string[], agentId: string): Promise<ActionState> {
+async function bulkAssignLeadsToTeam(user: AuthenticatedLeadUser, leadIds: string[], agentId: string, team: BulkAssignmentTeam): Promise<ActionState> {
   requireAdminUser(user);
-  const assignedAgentId = await ensureAgent(agentId, "RETENTION_AGENT");
+  const assignedAgentId = await ensureAgent(agentId, bulkAssignmentAgentRole(team));
+  if (!assignedAgentId) return fail(`Choose an active ${bulkAssignmentLabel(team)} Agent.`);
   if (!leadIds.length) return fail("Select at least one lead.");
-  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: { retentionAgentId: assignedAgentId, assignedAgentId } });
-  return ok(`${leadIds.length} lead(s) assigned to Retention.`);
+  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: bulkAssignData(team, assignedAgentId) });
+  return ok(`${leadIds.length} lead(s) assigned to ${bulkAssignmentLabel(team)}.`);
 }
 
-export async function bulkUnassignLeads(user: AuthenticatedLeadUser, leadIds: string[]): Promise<ActionState> {
+export function bulkAssignSalesLeads(user: AuthenticatedLeadUser, leadIds: string[], agentId: string): Promise<ActionState> {
+  return bulkAssignLeadsToTeam(user, leadIds, agentId, "SALES");
+}
+
+export function bulkAssignRetentionLeads(user: AuthenticatedLeadUser, leadIds: string[], agentId: string): Promise<ActionState> {
+  return bulkAssignLeadsToTeam(user, leadIds, agentId, "RETENTION");
+}
+
+async function bulkUnassignLeadsFromTeam(user: AuthenticatedLeadUser, leadIds: string[], team: BulkAssignmentTeam): Promise<ActionState> {
   requireAdminUser(user);
   if (!leadIds.length) return fail("Select at least one lead.");
-  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: { retentionAgentId: null, assignedAgentId: null } });
-  return ok(`${leadIds.length} lead(s) unassigned from Retention.`);
+  await db.lead.updateMany({ where: { id: { in: leadIds } }, data: bulkUnassignData(team) });
+  return ok(`${leadIds.length} lead(s) unassigned from ${bulkAssignmentLabel(team)}.`);
+}
+
+export function bulkUnassignSalesLeads(user: AuthenticatedLeadUser, leadIds: string[]): Promise<ActionState> {
+  return bulkUnassignLeadsFromTeam(user, leadIds, "SALES");
+}
+
+export function bulkUnassignRetentionLeads(user: AuthenticatedLeadUser, leadIds: string[]): Promise<ActionState> {
+  return bulkUnassignLeadsFromTeam(user, leadIds, "RETENTION");
 }
 
 export async function bulkDeleteLeads(user: AuthenticatedLeadUser, leadIds: string[]): Promise<ActionState> {
@@ -442,22 +460,31 @@ export async function bulkDeleteLeads(user: AuthenticatedLeadUser, leadIds: stri
   return ok(`${leadIds.length} lead(s) deleted.`);
 }
 
-export async function distributeLeads(user: AuthenticatedLeadUser, leadIds: string[], agentIds: string[], statusScope?: RetentionStatus | "all"): Promise<ActionState> {
+async function distributeLeadsToTeam(user: AuthenticatedLeadUser, leadIds: string[], agentIds: string[], team: BulkAssignmentTeam, statusScope?: RetentionStatus | "all"): Promise<ActionState> {
   requireAdminUser(user);
   if (!leadIds.length) return fail("Select at least one lead.");
-  if (!agentIds.length) return fail("Select at least one Retention Agent.");
-  const agents = await db.user.findMany({ where: { id: { in: agentIds }, role: "RETENTION_AGENT", active: true }, select: { id: true } });
+  const label = bulkAssignmentLabel(team);
+  if (!agentIds.length) return fail(`Select at least one ${label} Agent.`);
+  const agents = await db.user.findMany({ where: { id: { in: agentIds }, role: bulkAssignmentAgentRole(team), active: true }, select: { id: true } });
   if (agents.length !== agentIds.length) return fail("One or more selected agents are unavailable.");
 
   const eligible = await db.lead.findMany({
-    where: { id: { in: leadIds }, ...(statusScope && statusScope !== "all" ? { retentionStatus: statusScope } : {}) },
+    where: { id: { in: leadIds }, ...(team === "RETENTION" && statusScope && statusScope !== "all" ? { retentionStatus: statusScope } : {}) },
     select: { id: true },
   });
   if (!eligible.length) return fail("No selected leads match the chosen distribution scope.");
 
   const shuffled = [...eligible.map((lead) => lead.id)].sort(() => Math.random() - 0.5);
-  await db.$transaction(shuffled.map((leadId, index) => db.lead.update({ where: { id: leadId }, data: { retentionAgentId: agents[index % agents.length].id, assignedAgentId: agents[index % agents.length].id } })));
+  await db.$transaction(shuffled.map((leadId, index) => db.lead.update({ where: { id: leadId }, data: bulkAssignData(team, agents[index % agents.length].id) })));
   return ok(`${shuffled.length} lead(s) distributed equally.`);
+}
+
+export function distributeSalesLeads(user: AuthenticatedLeadUser, leadIds: string[], agentIds: string[]): Promise<ActionState> {
+  return distributeLeadsToTeam(user, leadIds, agentIds, "SALES");
+}
+
+export function distributeRetentionLeads(user: AuthenticatedLeadUser, leadIds: string[], agentIds: string[], statusScope?: RetentionStatus | "all"): Promise<ActionState> {
+  return distributeLeadsToTeam(user, leadIds, agentIds, "RETENTION", statusScope);
 }
 
 export async function importLeadsFromExcel(user: AuthenticatedLeadUser, file: File): Promise<ActionState> {

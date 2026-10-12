@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { bulkAssignData, bulkAssignmentAgentRole, bulkUnassignData } from "../src/lib/crm/bulk-assignment";
 import { calculateDepositSummary, depositBelongsToLead } from "../src/lib/crm/deposit-summary";
 import { DEFAULT_IMPORT_BATCH_SIZE, REJECTED_ROW_PREVIEW_LIMIT, buildLeadImportCreatePlan, buildLeadImportReport, buildRejectedRowsCsv, chunkLeadImportRows, rejectExistingLeadDuplicates, rejectedImportRowFromValid, validateLeadImportRows } from "../src/lib/crm/import-leads";
 import { listMockLeads } from "../src/lib/leads/mock-repository";
-import { canAddDeposit, canAddNote, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead } from "../src/lib/leads/permissions";
+import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead } from "../src/lib/leads/permissions";
 import { parseLeadQuery } from "../src/lib/leads/query";
 import { ACTIVE_TEAMS, type AuthenticatedLeadUser } from "../src/lib/leads/types";
 import { leadListHref } from "../src/lib/leads/url";
@@ -159,6 +160,43 @@ assert.ok(canUpdateActiveTeam(admin));
 assert.deepEqual([...ACTIVE_TEAMS], ["OPEN", "SALES", "RETENTION"]);
 assert.equal(canUpdateActiveTeam(sales), false);
 assert.equal(canUpdateActiveTeam(agent), false);
+assert.ok(canAssignSalesAgent(admin));
+assert.ok(canAssignRetentionAgent(admin));
+assert.equal(canAssignSalesAgent(sales), false);
+assert.equal(canAssignRetentionAgent(agent), false);
+
+const bulkBaseLead = { activeTeam: "OPEN" as const, salesAgentId: null, retentionAgentId: null, salesStatus: "NEW", retentionStatus: "NEW" };
+const bulkSalesAssigned = { ...bulkBaseLead, ...bulkAssignData("SALES", sales.id) };
+assert.deepEqual(bulkAssignData("SALES", sales.id), { salesAgentId: sales.id });
+assert.equal("retentionAgentId" in bulkAssignData("SALES", sales.id), false);
+assert.equal("activeTeam" in bulkAssignData("SALES", sales.id), false);
+assert.equal("salesStatus" in bulkAssignData("SALES", sales.id), false);
+assert.ok(canViewLead(sales, bulkSalesAssigned));
+assert.equal(canViewLead(agent, bulkSalesAssigned), false);
+
+const bulkRetentionAssigned = { ...bulkBaseLead, ...bulkAssignData("RETENTION", agent.id) };
+assert.deepEqual(bulkAssignData("RETENTION", agent.id), { retentionAgentId: agent.id, assignedAgentId: agent.id });
+assert.equal("salesAgentId" in bulkAssignData("RETENTION", agent.id), false);
+assert.equal("activeTeam" in bulkAssignData("RETENTION", agent.id), false);
+assert.equal("retentionStatus" in bulkAssignData("RETENTION", agent.id), false);
+assert.ok(canViewLead(agent, bulkRetentionAssigned));
+assert.equal(canViewLead(sales, bulkRetentionAssigned), false);
+
+const bulkBothAssigned = { ...bulkBaseLead, ...bulkAssignData("SALES", sales.id), ...bulkAssignData("RETENTION", agent.id) };
+assert.ok(canViewLead(sales, bulkBothAssigned));
+assert.ok(canViewLead(agent, bulkBothAssigned));
+const afterSalesUnassign = { ...bulkBothAssigned, ...bulkUnassignData("SALES") };
+assert.equal(afterSalesUnassign.salesAgentId, null);
+assert.equal(afterSalesUnassign.retentionAgentId, agent.id);
+assert.ok(canViewLead(agent, afterSalesUnassign));
+assert.equal(canViewLead(sales, afterSalesUnassign), false);
+const afterRetentionUnassign = { ...bulkBothAssigned, ...bulkUnassignData("RETENTION") };
+assert.equal(afterRetentionUnassign.salesAgentId, sales.id);
+assert.equal(afterRetentionUnassign.retentionAgentId, null);
+assert.ok(canViewLead(sales, afterRetentionUnassign));
+assert.equal(canViewLead(agent, afterRetentionUnassign), false);
+assert.equal(bulkAssignmentAgentRole("SALES"), "SALES_AGENT");
+assert.equal(bulkAssignmentAgentRole("RETENTION"), "RETENTION_AGENT");
 
 const depositOne = { id: "deposit-1", leadId: "lead-1", amount: "100.00", createdAt: new Date("2026-01-01T10:00:00.000Z") };
 const depositTwo = { id: "deposit-2", leadId: "lead-1", amount: "200.00", createdAt: new Date("2026-01-02T10:00:00.000Z") };
