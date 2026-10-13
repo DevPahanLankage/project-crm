@@ -3,7 +3,7 @@ import { LeadFilters } from "@/app/(crm)/leads/lead-filters";
 import { LeadsTable } from "@/app/(crm)/leads/leads-table";
 import { RefreshButton } from "@/app/(crm)/leads/refresh-button";
 import { requireAuthenticatedUser } from "@/lib/auth";
-import { parseLeadQuery } from "@/lib/leads/query";
+import { leadQueryForRole, leadSearchParamsForRole, parseLeadQuery } from "@/lib/leads/query";
 import { listAuthorizedLeads } from "@/lib/leads/service";
 import { leadListHref, type LeadSearchParams } from "@/lib/leads/url";
 import { startPerf } from "@/lib/perf";
@@ -20,10 +20,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const endPage = startPerf("leads page total");
   const user = await requireAuthenticatedUser();
   const params = await searchParams;
-  const query = parseLeadQuery(params);
+  const visibleParams = leadSearchParamsForRole(params, user.role);
+  const query = leadQueryForRole(parseLeadQuery(visibleParams), user.role);
   const result = await listAuthorizedLeads(user, query);
   endPage();
-  const isAdmin = user.role === "ADMIN";
   const totalPages = query.pageSize === "all" ? 1 : Math.max(1, Math.ceil(result.total / query.pageSize));
   const start = result.total === 0 ? 0 : query.pageSize === "all" ? 1 : (result.page - 1) * query.pageSize + 1;
   const end = query.pageSize === "all" ? result.total : Math.min(result.page * query.pageSize, result.total);
@@ -31,28 +31,28 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   return (
     <div className="leads-page">
       <div className="leads-heading"><h1>{result.total.toLocaleString("en-US")} Clients found</h1></div>
-      <LeadFilters query={query} salesAgents={result.salesAgents} retentionAgents={result.retentionAgents} countryOptions={result.countryOptions} isAdmin={isAdmin} />
+      <LeadFilters query={query} salesAgents={result.salesAgents} retentionAgents={result.retentionAgents} countryOptions={result.countryOptions} viewer={user} />
       <div className="table-panel">
         <div className="table-toolbar">
           <form className="global-search" action="/leads" method="get">
-            {preservedInputs(params, ["search", "page"])}
+            {preservedInputs(visibleParams, ["search", "page"])}
             <input name="search" defaultValue={query.search} placeholder="Search by name, lead ID, or country (code or name)" aria-label="Search leads" />
             <button type="submit">Search</button>
           </form>
           <RefreshButton />
         </div>
-        {result.items.length ? <LeadsTable items={result.items} salesAgents={result.salesAgents} retentionAgents={result.retentionAgents} isAdmin={isAdmin} query={query} params={params} /> : <div className="leads-empty"><strong>No leads found</strong><span>Try changing or resetting the current filters.</span></div>}
+        {result.items.length ? <LeadsTable items={result.items} salesAgents={result.salesAgents} retentionAgents={result.retentionAgents} viewer={user} query={query} params={visibleParams} /> : <div className="leads-empty"><strong>No leads found</strong><span>Try changing or resetting the current filters.</span></div>}
         <div className="table-footer">
           <form className="page-size-form" action="/leads" method="get">
-            {preservedInputs(params, ["page", "pageSize"])}
+            {preservedInputs(visibleParams, ["page", "pageSize"])}
             <label htmlFor="page-size">Rows</label>
             <select id="page-size" name="pageSize" defaultValue={query.pageSize}><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="all">All</option></select>
             <button type="submit">Show</button>
           </form>
           <span className="page-summary">Page {result.page} of {totalPages} - Showing {start.toLocaleString("en-US")} to {end.toLocaleString("en-US")} of {result.total.toLocaleString("en-US")}</span>
           <nav className="pagination" aria-label="Leads pagination">
-            {result.page > 1 ? <Link href={leadListHref(params, { page: String(result.page - 1) })}>Previous</Link> : <span aria-disabled="true">Previous</span>}
-            {result.page < totalPages ? <Link href={leadListHref(params, { page: String(result.page + 1) })}>Next</Link> : <span aria-disabled="true">Next</span>}
+            {result.page > 1 ? <Link href={leadListHref(visibleParams, { page: String(result.page - 1) })}>Previous</Link> : <span aria-disabled="true">Previous</span>}
+            {result.page < totalPages ? <Link href={leadListHref(visibleParams, { page: String(result.page + 1) })}>Next</Link> : <span aria-disabled="true">Next</span>}
           </nav>
         </div>
       </div>

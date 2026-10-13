@@ -1,5 +1,6 @@
 ﻿import { getCountry, getCountryCodesMatching } from "@/lib/countries";
 import type { AgentOption, AuthenticatedLeadUser, CountryFilterOption, LeadListItem, LeadPageResult, LeadQuery } from "@/lib/leads/types";
+import { leadQueryForRole } from "@/lib/leads/query";
 
 const MOCK_AGENTS: AgentOption[] = [
   { id: "dev-agent", fullName: "Retention Agent" },
@@ -131,6 +132,7 @@ function applyNonCountryFilters(rows: MockLead[], user: AuthenticatedLeadUser, q
 }
 
 export async function listMockLeads(user: AuthenticatedLeadUser, query: LeadQuery): Promise<LeadPageResult> {
+  query = leadQueryForRole(query, user.role);
   // Authorization scope is deliberately applied before any browser-controlled filters.
   let rows = user.role === "ADMIN" ? MOCK_LEADS : user.role === "SALES_AGENT" ? MOCK_LEADS.filter((lead) => lead.salesAgent?.id === user.id) : MOCK_LEADS.filter((lead) => lead.retentionAgent?.id === user.id);
   rows = applyNonCountryFilters(rows, user, query);

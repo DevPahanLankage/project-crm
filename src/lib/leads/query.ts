@@ -1,19 +1,20 @@
+import type { Role } from "@prisma/client";
 import { ACTIVE_TEAMS, RETENTION_STATUSES, SALES_STATUSES, type LeadQuery, type LeadSort, type PageSize } from "@/lib/leads/types";
 import { getCountry, getCountryCodesMatching, normalizeCountryCode } from "@/lib/countries";
 
-type RawSearchParams = Record<string, string | string[] | undefined>;
+export type RawLeadSearchParams = Record<string, string | string[] | undefined>;
 
-function value(params: RawSearchParams, key: string) {
+function value(params: RawLeadSearchParams, key: string) {
   const raw = params[key];
   return (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? "";
 }
 
-function values(params: RawSearchParams, key: string) {
+function values(params: RawLeadSearchParams, key: string) {
   const raw = params[key];
   return (Array.isArray(raw) ? raw : raw ? [raw] : []).flatMap((item) => item.split(",")).map((item) => item.trim()).filter(Boolean);
 }
 
-function countryValues(params: RawSearchParams) {
+function countryValues(params: RawLeadSearchParams) {
   const selected = new Set<string>();
   for (const raw of values(params, "country")) {
     const normalized = normalizeCountryCode(raw);
@@ -32,7 +33,27 @@ function dateValue(raw: string, endOfDay = false) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export function parseLeadQuery(params: RawSearchParams): LeadQuery {
+export function leadSearchParamsForRole(params: RawLeadSearchParams, role: Role): RawLeadSearchParams {
+  if (role !== "SALES_AGENT") return params;
+
+  return Object.fromEntries(Object.entries(params).filter(([key]) => !["retentionStatus", "status", "retentionAgent", "agent"].includes(key)).filter(([key, raw]) => {
+    if (key !== "sort") return true;
+    const sort = Array.isArray(raw) ? raw[0] : raw;
+    return sort !== "retentionStatus";
+  }));
+}
+
+export function leadQueryForRole(query: LeadQuery, role: Role): LeadQuery {
+  if (role !== "SALES_AGENT") return query;
+  return {
+    ...query,
+    retentionStatus: null,
+    retentionAgent: "",
+    sort: query.sort === "retentionStatus" ? "registration" : query.sort,
+  };
+}
+
+export function parseLeadQuery(params: RawLeadSearchParams): LeadQuery {
   const salesStatusValue = value(params, "salesStatus");
   const retentionStatusValue = value(params, "retentionStatus") || value(params, "status");
   const activeTeamValue = value(params, "activeTeam");

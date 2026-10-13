@@ -11,6 +11,22 @@ export function isAdmin(user: AuthenticatedLeadUser) {
   return user.role === "ADMIN";
 }
 
+export function leadWorkflowVisibility(user: AuthenticatedLeadUser) {
+  const admin = isAdmin(user);
+  const showRetention = user.role !== "SALES_AGENT";
+
+  return {
+    showSalesStatus: true,
+    showSalesAgent: true,
+    showRetentionStatus: showRetention,
+    showRetentionAgent: showRetention,
+    showSalesStatusFilter: true,
+    showRetentionStatusFilter: showRetention,
+    showSalesAgentFilter: admin,
+    showRetentionAgentFilter: admin,
+  } as const;
+}
+
 export function canViewLead(user: AuthenticatedLeadUser, lead: LeadAccessShape) {
   if (isAdmin(user)) return true;
   if (user.role === "SALES_AGENT") return lead.salesAgentId === user.id;

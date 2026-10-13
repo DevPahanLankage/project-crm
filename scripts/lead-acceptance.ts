@@ -3,8 +3,8 @@ import { bulkAssignData, bulkAssignmentAgentRole, bulkUnassignData } from "../sr
 import { calculateDepositSummary, depositBelongsToLead } from "../src/lib/crm/deposit-summary";
 import { DEFAULT_IMPORT_BATCH_SIZE, REJECTED_ROW_PREVIEW_LIMIT, buildLeadImportCreatePlan, buildLeadImportReport, buildRejectedRowsCsv, chunkLeadImportRows, rejectExistingLeadDuplicates, rejectedImportRowFromValid, validateLeadImportRows } from "../src/lib/crm/import-leads";
 import { listMockLeads } from "../src/lib/leads/mock-repository";
-import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canDeleteNote, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead } from "../src/lib/leads/permissions";
-import { parseLeadQuery } from "../src/lib/leads/query";
+import { canAddDeposit, canAddNote, canAssignRetentionAgent, canAssignSalesAgent, canDeleteDeposit, canDeleteNote, canEditRetentionStatus, canEditSalesStatus, canUpdateActiveTeam, canViewLead, leadWorkflowVisibility } from "../src/lib/leads/permissions";
+import { leadQueryForRole, leadSearchParamsForRole, parseLeadQuery } from "../src/lib/leads/query";
 import { ACTIVE_TEAMS, type AuthenticatedLeadUser } from "../src/lib/leads/types";
 import { leadListHref } from "../src/lib/leads/url";
 
@@ -97,6 +97,37 @@ assert.equal((await result({ search: unassignedLead.id, pageSize: "all" }, sales
 assert.equal((await result({ search: unassignedLead.id, pageSize: "all" }, agent)).total, 0);
 const salesCountryCounts = countryCountMap(salesAll.items);
 assert.deepEqual(new Map(salesAll.countryOptions.map((option) => [option.code, option.count])), salesCountryCounts);
+
+const salesVisibility = leadWorkflowVisibility(sales);
+assert.equal(salesVisibility.showSalesStatus, true);
+assert.equal(salesVisibility.showSalesAgent, true);
+assert.equal(salesVisibility.showRetentionStatus, false);
+assert.equal(salesVisibility.showRetentionAgent, false);
+assert.equal(salesVisibility.showRetentionStatusFilter, false);
+assert.equal(salesVisibility.showRetentionAgentFilter, false);
+const retentionVisibility = leadWorkflowVisibility(agent);
+assert.equal(retentionVisibility.showSalesStatus, true);
+assert.equal(retentionVisibility.showSalesAgent, true);
+assert.equal(retentionVisibility.showRetentionStatus, true);
+assert.equal(retentionVisibility.showRetentionAgent, true);
+const adminVisibility = leadWorkflowVisibility(admin);
+assert.equal(adminVisibility.showSalesStatus, true);
+assert.equal(adminVisibility.showRetentionStatus, true);
+assert.equal(adminVisibility.showSalesAgentFilter, true);
+assert.equal(adminVisibility.showRetentionAgentFilter, true);
+
+const craftedSalesParams = { retentionStatus: "ACTIVE", status: "ACTIVE_VIP", retentionAgent: otherAgent.id, agent: otherAgent.id, sort: "retentionStatus", direction: "asc" };
+const visibleSalesParams = leadSearchParamsForRole(craftedSalesParams, sales.role);
+assert.equal("retentionStatus" in visibleSalesParams, false);
+assert.equal("status" in visibleSalesParams, false);
+assert.equal("retentionAgent" in visibleSalesParams, false);
+assert.equal("agent" in visibleSalesParams, false);
+assert.equal("sort" in visibleSalesParams, false);
+const craftedSalesQuery = leadQueryForRole(parseLeadQuery(craftedSalesParams), sales.role);
+assert.equal(craftedSalesQuery.retentionStatus, null);
+assert.equal(craftedSalesQuery.retentionAgent, "");
+assert.equal(craftedSalesQuery.sort, "registration");
+assert.equal((await result({ retentionStatus: "ACTIVE", retentionAgent: otherAgent.id, pageSize: "all" }, sales)).total, salesAll.total);
 
 const openUnassigned = { activeTeam: "OPEN" as const, salesAgentId: null, retentionAgentId: null };
 assert.ok(canViewLead(admin, openUnassigned));

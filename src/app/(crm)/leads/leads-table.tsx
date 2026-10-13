@@ -14,7 +14,8 @@ import {
 } from "@/app/(crm)/crm-actions";
 import { ActionMessage } from "@/components/action-state";
 import { CountryCode } from "@/components/country-code";
-import { ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, SALES_STATUS_LABELS, emptyActionState, type AgentOption, type LeadListItem, type LeadQuery, type LeadSort } from "@/lib/leads/types";
+import { leadWorkflowVisibility } from "@/lib/leads/permissions";
+import { ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, SALES_STATUS_LABELS, emptyActionState, type AgentOption, type AuthenticatedLeadUser, type LeadListItem, type LeadQuery, type LeadSort } from "@/lib/leads/types";
 import { leadListHref, type LeadSearchParams } from "@/lib/leads/url";
 
 const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
@@ -70,7 +71,9 @@ function statusClass(status: string) {
   return `status-${status.toLocaleLowerCase().replaceAll("_", "-")}`;
 }
 
-export function LeadsTable({ items, salesAgents, retentionAgents, isAdmin, query, params }: { items: LeadListItem[]; salesAgents: AgentOption[]; retentionAgents: AgentOption[]; isAdmin: boolean; query: LeadQuery; params: LeadSearchParams }) {
+export function LeadsTable({ items, salesAgents, retentionAgents, viewer, query, params }: { items: LeadListItem[]; salesAgents: AgentOption[]; retentionAgents: AgentOption[]; viewer: AuthenticatedLeadUser; query: LeadQuery; params: LeadSearchParams }) {
+  const visibility = leadWorkflowVisibility(viewer);
+  const isAdmin = viewer.role === "ADMIN";
   const [selected, setSelected] = useState<string[]>([]);
   const [modal, setModal] = useState<Modal>(null);
   const [assignSalesState, assignSalesAction, assignSalesPending] = useActionState(bulkAssignSalesLeadsAction, emptyActionState);
@@ -120,11 +123,11 @@ export function LeadsTable({ items, salesAgents, retentionAgents, isAdmin, query
             <SortHeader field="country" label="Country" query={query} params={params} />
             <SortHeader field="balance" label="Balance" query={query} params={params} />
             <th>Deposits</th>
-            <SortHeader field="salesStatus" label="Sales Status" query={query} params={params} />
-            <SortHeader field="retentionStatus" label="Retention Status" query={query} params={params} />
+            {visibility.showSalesStatus && <SortHeader field="salesStatus" label="Sales Status" query={query} params={params} />}
+            {visibility.showRetentionStatus && <SortHeader field="retentionStatus" label="Retention Status" query={query} params={params} />}
             <SortHeader field="activeTeam" label="Active Team" query={query} params={params} />
-            <th>Sales Agent</th>
-            <th>Retention Agent</th>
+            {visibility.showSalesAgent && <th>Sales Agent</th>}
+            {visibility.showRetentionAgent && <th>Retention Agent</th>}
             <SortHeader field="registration" label="Registration" query={query} params={params} />
             <SortHeader field="lastNote" label="Last Note" query={query} params={params} />
           </tr></thead>
@@ -134,11 +137,11 @@ export function LeadsTable({ items, salesAgents, retentionAgents, isAdmin, query
             <td><CountryCode code={lead.countryCode} /></td>
             <td className="numeric">{money(lead.totalBalance)}</td>
             <td><Deposits lead={lead} /></td>
-            <td><span className={`status-box ${statusClass(lead.salesStatus)}`}>{SALES_STATUS_LABELS[lead.salesStatus]}</span></td>
-            <td><span className={`status-box ${statusClass(lead.retentionStatus)}`}>{RETENTION_STATUS_LABELS[lead.retentionStatus]}</span></td>
+            {visibility.showSalesStatus && <td><span className={`status-box ${statusClass(lead.salesStatus)}`}>{SALES_STATUS_LABELS[lead.salesStatus]}</span></td>}
+            {visibility.showRetentionStatus && <td><span className={`status-box ${statusClass(lead.retentionStatus)}`}>{RETENTION_STATUS_LABELS[lead.retentionStatus]}</span></td>}
             <td><span className="status-box">{ACTIVE_TEAM_LABELS[lead.activeTeam]}</span></td>
-            <td>{lead.salesAgent?.fullName ?? <span className="muted">Unassigned</span>}</td>
-            <td>{lead.retentionAgent?.fullName ?? <span className="muted">Unassigned</span>}</td>
+            {visibility.showSalesAgent && <td>{lead.salesAgent?.fullName ?? <span className="muted">Unassigned</span>}</td>}
+            {visibility.showRetentionAgent && <td>{lead.retentionAgent?.fullName ?? <span className="muted">Unassigned</span>}</td>}
             <td className="nowrap" title={dateTime.format(lead.createdAt)}>{relativeTime(lead.createdAt)}</td>
             <td>{lead.lastNote ? <span className="note-cell"><strong>{lead.lastNote.preview || "Note posted"}</strong><small>{dateTime.format(lead.lastNote.at)}{lead.lastNote.author ? ` - ${lead.lastNote.author}` : ""}</small></span> : <span className="muted">-</span>}</td>
           </tr>)}</tbody>

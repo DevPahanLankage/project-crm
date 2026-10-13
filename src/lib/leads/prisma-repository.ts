@@ -3,6 +3,7 @@ import { getCountry, getCountryCodesMatching } from "@/lib/countries";
 import { db } from "@/lib/db";
 import type { AuthenticatedLeadUser, CountryFilterOption, DepositItem, LeadDetail, LeadPageResult, LeadQuery, NoteItem, UserListItem } from "@/lib/leads/types";
 import { canViewLead } from "@/lib/leads/permissions";
+import { leadQueryForRole } from "@/lib/leads/query";
 import { startPerf, timed } from "@/lib/perf";
 
 function leadAccessSql(user: AuthenticatedLeadUser) {
@@ -194,6 +195,7 @@ async function listAgents(role: "SALES_AGENT" | "RETENTION_AGENT") {
 }
 
 export async function listPrismaLeads(user: AuthenticatedLeadUser, query: LeadQuery): Promise<LeadPageResult> {
+  query = leadQueryForRole(query, user.role);
   const endRepository = startPerf("leads repository total");
   const where = listWhereSql(user, query);
   const orderBy = listOrderSql(query);

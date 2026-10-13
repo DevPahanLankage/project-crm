@@ -7,7 +7,7 @@ import { ActionMessage } from "@/components/action-state";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountryCode } from "@/components/country-code";
 import { SubmitButton } from "@/components/submit-button";
-import { canAddDeposit, canAddNote, canDeleteNote, canEditProfile, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam } from "@/lib/leads/permissions";
+import { canAddDeposit, canAddNote, canDeleteNote, canEditProfile, canEditRetentionStatus, canEditSalesStatus, canToggleNotePin, canUpdateActiveTeam, leadWorkflowVisibility } from "@/lib/leads/permissions";
 import { ACTIVE_TEAMS, ACTIVE_TEAM_LABELS, RETENTION_STATUSES, RETENTION_STATUS_LABELS, ROLE_LABELS, SALES_STATUSES, SALES_STATUS_LABELS, emptyActionState, type AgentOption, type AuthenticatedLeadUser, type LeadDetail } from "@/lib/leads/types";
 
 const exactDateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
@@ -106,6 +106,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
 
   const accessLead = { activeTeam: lead.activeTeam, salesAgentId: lead.salesAgent?.id ?? null, retentionAgentId: lead.retentionAgent?.id ?? null };
   const isAdmin = viewer.role === "ADMIN";
+  const visibility = leadWorkflowVisibility(viewer);
   const activeTeamEditable = canUpdateActiveTeam(viewer);
   const salesStatusEditable = canEditSalesStatus(viewer, accessLead);
   const retentionStatusEditable = canEditRetentionStatus(viewer, accessLead);
@@ -204,7 +205,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
               </form>
               <ActionPanel state={salesStatusState} />
             </div>
-            <div className={!retentionStatusEditable ? "status-group status-readonly" : "status-group"}>
+            {visibility.showRetentionStatus && visibility.showRetentionAgent && <div className={!retentionStatusEditable ? "status-group status-readonly" : "status-group"}>
               <div className="status-row-heading">
                 <span>RETENTION</span>
                 <span className={`status-box ${statusClass(lead.retentionStatus)}`}>{RETENTION_STATUS_LABELS[lead.retentionStatus]}</span>
@@ -216,7 +217,7 @@ export function LeadProfile({ lead, salesAgents, retentionAgents, viewer }: { le
                 <SubmitButton disabled={!retentionStatusEditable}>Update</SubmitButton>
               </form>
               <ActionPanel state={retentionStatusState} />
-            </div>
+            </div>}
           </div>
         </section>
 
